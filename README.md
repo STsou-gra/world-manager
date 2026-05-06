@@ -1,3 +1,13 @@
+キャラクター・組織・世界観ごと管理できる、キャラクター設定Webアプリケーション。
+
+今後やること
+・キャラクター同士の相関図
+・組織同士の相関図
+・キャラクター・組織との相関図（復讐心など）
+・その他UIの乱れや新規作成時の変数追加不可などの修正
+
+
+## Next.jsの開始手順
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
