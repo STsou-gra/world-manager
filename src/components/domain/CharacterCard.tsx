@@ -30,8 +30,8 @@ export default function CharacterCard({ character }: { character: Character }) {
       </div>
 
       <div className="space-y-4">
-        <StatBar label="ATK" value={character.stats.attack} color="bg-rose-500" />
-        <StatBar label="DEF" value={character.stats.defense} color="bg-sky-500" />
+        <StatBar label="ATK" value={character.stats?.attack ?? character.stats?.ATK ?? 0} color="bg-rose-500" />
+        <StatBar label="DEF" value={character.stats?.defense ?? character.stats?.DEF ?? 0} color="bg-sky-500" />
       </div>
     </div>
   );

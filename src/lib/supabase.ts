@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 // 本来は .env.local から読み込みますが、まずは形を作ります
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
 
 // 【デバッグ用】値が空っぽでないか確認
 console.log('Connecting to Supabase at:', supabaseUrl);

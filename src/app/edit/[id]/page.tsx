@@ -184,7 +184,7 @@ export default function EditCharacterPage() {
         <aside className="lg:col-span-4 space-y-6">
           <div className="sticky top-28 space-y-6">
             <TagSelector label="世界観（自動インポート）" color="text-blue-500" options={allWorlds} selected={selectedWorlds} onToggle={handleWorldToggle} />
-            <TagSelector label="所属組織" color="text-emerald-500" options={allOrgs} selected={selectedOrgs} onToggle={(oid) => setSelectedOrgs(prev => prev.includes(oid) ? prev.filter(i => i !== oid) : [...prev, oid])} />
+            <TagSelector label="所属組織" color="text-emerald-500" options={allOrgs} selected={selectedOrgs} onToggle={(oid: string) => setSelectedOrgs(prev => prev.includes(oid) ? prev.filter(i => i !== oid) : [...prev, oid])} />
             
             <div className="space-y-4 pt-6">
               <button onClick={handleSave} className="w-full bg-blue-600 text-white font-black py-6 rounded-3xl hover:bg-blue-500 transition-all shadow-xl text-lg">保存する</button>

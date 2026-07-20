@@ -22,7 +22,7 @@ export type Character = {
   name: string;
   gender: string;
   description: string;
-  stats: Record<string, number>;
+  stats?: Record<string, number>;
   worlds?: World[];
   organizations?: Organization[];
 };
