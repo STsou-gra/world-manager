@@ -3,7 +3,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabase';
+import Link from 'next/link';
+import { supabase, getSupabaseConfigStatus } from '../../lib/supabase';
 
 const DEFAULT_GENDER_TAGS = ['未設定', '女性', '男性', 'アンドロイド', 'その他'];
 const STORAGE_KEY_GENDER_TAGS = 'world_manager_custom_gender_tags';
@@ -30,6 +31,7 @@ function parseSchemaItems(schema: any): StatSchemaItem[] {
 export default function NewCharacterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [configStatus, setConfigStatus] = useState<any>({ isConfigured: true });
 
   // フォームステート
   const [name, setName] = useState('');
@@ -58,33 +60,39 @@ export default function NewCharacterPage() {
   const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
 
   useEffect(() => {
+    const status = getSupabaseConfigStatus();
+    setConfigStatus(status);
+
     const init = async () => {
-      const [wRes, oRes, cRes] = await Promise.all([
-        supabase.from('worlds').select('*'),
-        supabase.from('organizations').select('*'),
-        supabase.from('characters').select('gender')
-      ]);
-
-      setAllWorlds(wRes.data || []);
-      setAllOrgs(oRes.data || []);
-
-      // 既存キャラクターの性別/属性タグ
-      const dbGenders = (cRes.data || [])
-        .map((c: any) => c.gender)
-        .filter((g: string | null): g is string => !!g && g.trim() !== '');
-
-      let localTags: string[] = [];
       try {
-        const stored = localStorage.getItem(STORAGE_KEY_GENDER_TAGS);
-        if (stored) localTags = JSON.parse(stored);
+        const [wRes, oRes, cRes] = await Promise.all([
+          supabase.from('worlds').select('*'),
+          supabase.from('organizations').select('*'),
+          supabase.from('characters').select('gender')
+        ]);
+
+        setAllWorlds(wRes.data || []);
+        setAllOrgs(oRes.data || []);
+
+        const dbGenders = (cRes.data || [])
+          .map((c: any) => c.gender)
+          .filter((g: string | null): g is string => !!g && g.trim() !== '');
+
+        let localTags: string[] = [];
+        try {
+          const stored = localStorage.getItem(STORAGE_KEY_GENDER_TAGS);
+          if (stored) localTags = JSON.parse(stored);
+        } catch (e) {
+          console.error('Failed to load local gender tags:', e);
+        }
+
+        const mergedTags = Array.from(new Set([...DEFAULT_GENDER_TAGS, ...dbGenders, ...localTags]));
+        setGenderTags(mergedTags);
       } catch (e) {
-        console.error('Failed to load local gender tags:', e);
+        console.error('Initialization error:', e);
+      } finally {
+        setLoading(false);
       }
-
-      const mergedTags = Array.from(new Set([...DEFAULT_GENDER_TAGS, ...dbGenders, ...localTags]));
-      setGenderTags(mergedTags);
-
-      setLoading(false);
     };
     init();
   }, []);
@@ -111,67 +119,7 @@ export default function NewCharacterPage() {
     }
   };
 
-  // その場で「新しい世界観」を登録
-  const addNewWorld = async () => {
-    const wName = prompt('新しい世界観の名称を入力してください');
-    if (!wName || wName.trim() === '') return;
-
-    const wDesc = prompt('世界観の簡単な説明・概要（任意）') || '';
-
-    const { data: newWorld, error } = await supabase
-      .from('worlds')
-      .insert([{
-        name: wName.trim(),
-        description: wDesc.trim(),
-        char_stats_schema: [],
-        stats_schema: []
-      }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('World creation error:', error);
-      alert('世界観の登録に失敗しました。');
-      return;
-    }
-
-    if (newWorld) {
-      setAllWorlds(prev => [...prev, newWorld]);
-      handleWorldToggle(newWorld.id, [...allWorlds, newWorld]);
-    }
-  };
-
-  // その場で「新しい組織」を登録
-  const addNewOrg = async () => {
-    const oName = prompt('新しい組織の名称を入力してください');
-    if (!oName || oName.trim() === '') return;
-
-    const oDesc = prompt('組織の簡単な説明・概要（任意）') || '';
-
-    const { data: newOrg, error } = await supabase
-      .from('organizations')
-      .insert([{
-        name: oName.trim(),
-        description: oDesc.trim(),
-        world_id: selectedWorlds.length > 0 ? selectedWorlds[0] : null,
-        stats_schema: []
-      }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Organization creation error:', error);
-      alert('組織の登録に失敗しました。');
-      return;
-    }
-
-    if (newOrg) {
-      setAllOrgs(prev => [...prev, newOrg]);
-      handleOrgToggle(newOrg.id, [...allOrgs, newOrg]);
-    }
-  };
-
-  // 世界観タグ選択と固有変数の展開（数値型 vs 文字列型）
+  // 世界観タグ選択と固有変数の展開
   const handleWorldToggle = (wId: string, customWorldsList?: any[]) => {
     const worldsList = customWorldsList || allWorlds;
     const isSelecting = !selectedWorlds.includes(wId);
@@ -206,7 +154,7 @@ export default function NewCharacterPage() {
     }
   };
 
-  // 組織タグ選択の切り替えと組織固有変数の展開（数値型 vs 文字列型）
+  // 組織タグ選択の切り替え
   const handleOrgToggle = (oId: string, customOrgsList?: any[]) => {
     const orgsList = customOrgsList || allOrgs;
     const isSelecting = !selectedOrgs.includes(oId);
@@ -273,31 +221,49 @@ export default function NewCharacterPage() {
       return;
     }
 
+    const currentStatus = getSupabaseConfigStatus();
+    if (!currentStatus.isConfigured) {
+      alert(
+        `[Supabase設定警告]\n` +
+        `NEXT_PUBLIC_SUPABASE_URL または KEY が環境変数から正しく読み込まれていません。\n\n` +
+        `現在の接続URL: ${currentStatus.supabaseUrl}\n` +
+        `キーの有無: ${currentStatus.hasAnonKey ? 'あり' : 'なし'}\n\n` +
+        `.env.local ファイルをご確認の上、ターミナルで開発サーバー(npm run dev)を再起動してください。`
+      );
+      return;
+    }
+
     const descJson = JSON.stringify({
       personality,
       background,
       memo,
-      string_attributes: stringAttributes
+      string_attributes: stringAttributes,
+      stat_notes: statNotes
     });
 
-    const { data: char, error } = await supabase
+    const { data, error } = await supabase
       .from('characters')
       .insert([{
         name: name.trim(),
         gender,
         description: descJson,
-        stats,
-        stat_notes: statNotes
+        stats
       }])
-      .select()
-      .single();
+      .select();
 
     if (error) {
-      console.error('Character creation error:', error);
-      alert('キャラクターの作成に失敗しました。');
+      console.error('Character creation error details:', error);
+      alert(
+        `キャラクターの作成に失敗しました:\n\n` +
+        `メッセージ: ${error.message || '不明なエラー'}\n` +
+        `コード: ${error.code || 'なし'}\n` +
+        `詳細: ${error.details || 'なし'}\n` +
+        `ヒント: ${error.hint || 'なし'}`
+      );
       return;
     }
 
+    const char = data?.[0];
     if (char) {
       if (selectedWorlds.length > 0) {
         await supabase.from('character_worlds').insert(
@@ -321,6 +287,17 @@ export default function NewCharacterPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-10 pb-20 px-4">
+      {/* 設定警告バナー（環境変数が空・無効な場合） */}
+      {!configStatus.isConfigured && (
+        <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl text-amber-300 text-xs flex justify-between items-center">
+          <div>
+            <strong>⚠️ Supabase接続設定のお知らせ:</strong> 開発環境の <code>.env.local</code> が読み込まれていないか、キー名が異なります。
+            接続先: <code>{configStatus.supabaseUrl}</code>
+          </div>
+          <span className="font-mono text-[10px] bg-amber-500/20 px-2 py-1 rounded">要サーバー再起動</span>
+        </div>
+      )}
+
       <header className="flex justify-between items-center border-b border-slate-800 pb-6">
         <div>
           <h1 className="text-3xl font-black text-white italic tracking-tighter uppercase">New Character</h1>
@@ -486,8 +463,8 @@ export default function NewCharacterPage() {
               options={allWorlds} 
               selected={selectedWorlds} 
               onToggle={(id) => handleWorldToggle(id)} 
-              onAddNew={addNewWorld}
               addLabel="+ 世界観を追加"
+              newUrl="/worlds/new"
             />
             
             <TagSelector 
@@ -496,8 +473,8 @@ export default function NewCharacterPage() {
               options={allOrgs} 
               selected={selectedOrgs} 
               onToggle={(id) => handleOrgToggle(id)} 
-              onAddNew={addNewOrg}
               addLabel="+ 組織を追加"
+              newUrl="/organizations/new"
             />
             
             <div className="space-y-4 pt-4">
@@ -542,38 +519,38 @@ function TagSelector({
   options, 
   selected, 
   onToggle, 
-  onAddNew, 
-  addLabel 
+  addLabel,
+  newUrl
 }: { 
   label: string; 
   color: string; 
   options: any[]; 
   selected: string[]; 
   onToggle: (id: string) => void; 
-  onAddNew?: () => void;
   addLabel?: string;
+  newUrl?: string;
 }) {
   return (
     <div className="bg-slate-800/20 p-6 rounded-3xl border border-slate-700 space-y-4">
       <div className="flex justify-between items-center">
         <h3 className={`text-[10px] font-black uppercase tracking-widest ${color}`}>{label}</h3>
-        {onAddNew && (
-          <button 
-            onClick={onAddNew} 
+        {newUrl && (
+          <Link 
+            href={newUrl} 
             className="text-[9px] bg-slate-800 text-slate-400 px-2.5 py-1 rounded-full border border-slate-700 hover:text-white transition-all"
           >
             {addLabel || '+ 追加'}
-          </button>
+          </Link>
         )}
       </div>
 
       {options.length === 0 ? (
         <div className="text-[10px] text-slate-600">
           未登録
-          {onAddNew && (
-            <button onClick={onAddNew} className="ml-2 text-blue-400 hover:underline">
+          {newUrl && (
+            <Link href={newUrl} className="ml-2 text-blue-400 hover:underline font-bold">
               今すぐ登録する
-            </button>
+            </Link>
           )}
         </div>
       ) : (

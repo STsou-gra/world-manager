@@ -66,6 +66,11 @@ export default function NewOrgPage() {
       return;
     }
 
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      alert('Supabase接続エラー:\nNEXT_PUBLIC_SUPABASE_URL が未設定または読み込まれていません。.env.local ファイルをご確認の上、開発サーバーを再起動してください。');
+      return;
+    }
+
     const descJson = JSON.stringify({ summary, history });
 
     const { data: newOrg, error } = await supabase
@@ -81,7 +86,7 @@ export default function NewOrgPage() {
 
     if (error) {
       console.error('Organization creation error:', error);
-      alert('組織の生成に失敗しました。');
+      alert(`組織の生成に失敗しました:\n${error.message || JSON.stringify(error)}`);
       return;
     }
 

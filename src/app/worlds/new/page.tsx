@@ -53,7 +53,12 @@ export default function NewWorldPage() {
       return;
     }
 
-    const { error } = await supabase.from('worlds').insert([{
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      alert('Supabase接続エラー:\nNEXT_PUBLIC_SUPABASE_URL が未設定または読み込まれていません。.env.local ファイルをご確認の上、開発サーバーを再起動してください。');
+      return;
+    }
+
+    let { error } = await supabase.from('worlds').insert([{
       name: name.trim(),
       description: desc.trim(),
       char_stats_schema: charSchema,
@@ -62,8 +67,19 @@ export default function NewWorldPage() {
     }]);
 
     if (error) {
+      console.warn('World creation retry with stats_schema:', error);
+      // カラム不存在エラーへのフォールバック
+      const retryRes = await supabase.from('worlds').insert([{
+        name: name.trim(),
+        description: desc.trim(),
+        stats_schema: charSchema
+      }]);
+      error = retryRes.error;
+    }
+
+    if (error) {
       console.error('World creation error:', error);
-      alert('世界観の保存に失敗しました。');
+      alert(`世界観の保存に失敗しました:\n${error.message || JSON.stringify(error)}`);
       return;
     }
 
