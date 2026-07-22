@@ -11,6 +11,7 @@ export default function Navbar() {
           <NavLink href="/" label="キャラクター" />
           <NavLink href="/worlds" label="世界観" />
           <NavLink href="/organizations" label="組織" />
+          <NavLink href="/relations" label="相関図" />
         </div>
       </div>
     </nav>

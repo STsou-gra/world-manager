@@ -56,8 +56,11 @@ export default function NewCharacterPage() {
   // マスタデータおよび選択状態
   const [allWorlds, setAllWorlds] = useState<any[]>([]);
   const [allOrgs, setAllOrgs] = useState<any[]>([]);
+  const [allCharacters, setAllCharacters] = useState<any[]>([]);
   const [selectedWorlds, setSelectedWorlds] = useState<string[]>([]);
   const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
+  const [relations, setRelations] = useState<{ target_character_id: string; relation_name: string }[]>([]);
+  const [orgRelations, setOrgRelations] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const status = getSupabaseConfigStatus();
@@ -65,14 +68,16 @@ export default function NewCharacterPage() {
 
     const init = async () => {
       try {
-        const [wRes, oRes, cRes] = await Promise.all([
+        const [wRes, oRes, cRes, allCharsRes] = await Promise.all([
           supabase.from('worlds').select('*'),
           supabase.from('organizations').select('*'),
-          supabase.from('characters').select('gender')
+          supabase.from('characters').select('gender'),
+          supabase.from('characters').select('id, name')
         ]);
 
         setAllWorlds(wRes.data || []);
         setAllOrgs(oRes.data || []);
+        setAllCharacters(allCharsRes.data || []);
 
         const dbGenders = (cRes.data || [])
           .map((c: any) => c.gender)
@@ -247,7 +252,8 @@ export default function NewCharacterPage() {
         name: name.trim(),
         gender,
         description: descJson,
-        stats
+        stats,
+        stat_notes: statNotes
       }])
       .select();
 
@@ -272,8 +278,24 @@ export default function NewCharacterPage() {
       }
       if (selectedOrgs.length > 0) {
         await supabase.from('character_organizations').insert(
-          selectedOrgs.map(oId => ({ character_id: char.id, org_id: oId }))
+          selectedOrgs.map(oId => ({ 
+            character_id: char.id, 
+            org_id: oId, 
+            relation_name: orgRelations[oId] || null 
+          }))
         );
+      }
+      if (relations.length > 0) {
+        const validRels = relations.filter(r => r.target_character_id && r.relation_name.trim() !== '');
+        if (validRels.length > 0) {
+          await supabase.from('character_relations').insert(
+            validRels.map(r => ({
+              source_character_id: char.id,
+              target_character_id: r.target_character_id,
+              relation_name: r.relation_name.trim()
+            }))
+          );
+        }
       }
     }
 
@@ -452,6 +474,74 @@ export default function NewCharacterPage() {
               </div>
             )}
           </section>
+
+          {/* 相関関係設定 */}
+          <section className="bg-slate-900/60 p-8 rounded-[2.5rem] border border-slate-800 space-y-6">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-xs font-black text-indigo-400 uppercase tracking-widest">キャラクター相関関係設定</h3>
+                <p className="text-[10px] text-slate-500">他キャラクターとの関係（矢印と説明ラベル）を定義します</p>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setRelations([...relations, { target_character_id: '', relation_name: '' }])}
+                className="text-[9px] bg-indigo-500/10 text-indigo-400 px-3 py-1.5 rounded-full border border-indigo-500/30 hover:bg-indigo-500 hover:text-white transition-all font-bold"
+              >
+                + 関係を追加
+              </button>
+            </div>
+
+            {relations.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-600 border border-dashed border-slate-800 rounded-2xl">
+                相関関係はまだ設定されていません。「+ 関係を追加」ボタンから定義できます。
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {relations.map((rel, idx) => (
+                  <div key={idx} className="flex flex-wrap items-center gap-3 bg-slate-800/10 p-4 rounded-2xl border border-slate-800/50">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-500 uppercase font-black">相手先</span>
+                      <select
+                        className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
+                        value={rel.target_character_id}
+                        onChange={e => {
+                          const updated = [...relations];
+                          updated[idx].target_character_id = e.target.value;
+                          setRelations(updated);
+                        }}
+                      >
+                        <option value="">キャラクターを選択...</option>
+                        {allCharacters.map(char => (
+                          <option key={char.id} value={char.id}>{char.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex-1 flex items-center gap-2 min-w-[200px]">
+                      <span className="text-[10px] text-slate-500 uppercase font-black">関係性</span>
+                      <input
+                        type="text"
+                        placeholder="例: 親友、ライバル、宿敵..."
+                        className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-indigo-300 outline-none focus:border-indigo-500"
+                        value={rel.relation_name}
+                        onChange={e => {
+                          const updated = [...relations];
+                          updated[idx].relation_name = e.target.value;
+                          setRelations(updated);
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRelations(relations.filter((_, i) => i !== idx))}
+                      className="text-[10px] text-red-500/50 hover:text-red-500 font-bold px-2 py-1"
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
 
         {/* サイドバー（所属タグ＆アクション） */}
@@ -476,6 +566,30 @@ export default function NewCharacterPage() {
               addLabel="+ 組織を追加"
               newUrl="/organizations/new"
             />
+
+            {selectedOrgs.length > 0 && (
+              <div className="bg-slate-800/20 p-6 rounded-3xl border border-slate-700 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <h3 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">組織内での役職・関係性</h3>
+                <div className="space-y-3">
+                  {selectedOrgs.map(oId => {
+                    const org = allOrgs.find(o => o.id === oId);
+                    if (!org) return null;
+                    return (
+                      <div key={oId} className="flex flex-col gap-1.5 bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+                        <span className="text-xs font-bold text-slate-300">{org.name}</span>
+                        <input 
+                          type="text"
+                          placeholder="例: 隊長、元メンバー、潜入中..."
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-emerald-400 outline-none focus:border-emerald-500"
+                          value={orgRelations[oId] || ''}
+                          onChange={e => setOrgRelations({ ...orgRelations, [oId]: e.target.value })}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             
             <div className="space-y-4 pt-4">
               <button 
