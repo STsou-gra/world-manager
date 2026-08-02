@@ -10,22 +10,35 @@ export default function CharacterListPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]); // 選択中のID
   const [isSelectMode, setIsSelectMode] = useState(false);
 
-  const fetch = async () => {
-    const { data } = await supabase.from('characters').select(`
-      *,
-      worlds:character_worlds(worlds(*)),
-      organizations:character_organizations(organizations(*))
-    `);
-    if (data) {
-      setCharacters(data.map((c: any) => ({
+  // フィルター用のState
+  const [worlds, setWorlds] = useState<any[]>([]);
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [selectedFilterWorldId, setSelectedFilterWorldId] = useState<string>('');
+  const [selectedFilterOrgId, setSelectedFilterOrgId] = useState<string>('');
+
+  const fetchData = async () => {
+    const [charsRes, worldsRes, orgsRes] = await Promise.all([
+      supabase.from('characters').select(`
+        *,
+        worlds:character_worlds(worlds(*)),
+        organizations:character_organizations(organizations(*))
+      `),
+      supabase.from('worlds').select('*'),
+      supabase.from('organizations').select('*')
+    ]);
+
+    if (charsRes.data) {
+      setCharacters(charsRes.data.map((c: any) => ({
         ...c,
-        worlds: c.worlds.map((w: any) => w.worlds),
-        organizations: c.organizations.map((o: any) => o.organizations)
+        worlds: c.worlds.map((w: any) => w.worlds).filter(Boolean),
+        organizations: c.organizations.map((o: any) => o.organizations).filter(Boolean)
       })));
     }
+    setWorlds(worldsRes.data || []);
+    setOrganizations(orgsRes.data || []);
   };
 
-  useEffect(() => { fetch(); }, []);
+  useEffect(() => { fetchData(); }, []);
 
   // 選択の切り替え
   const toggleSelect = (id: string) => {
@@ -39,9 +52,29 @@ export default function CharacterListPage() {
     if (!error) {
       setSelectedIds([]);
       setIsSelectMode(false);
-      fetch();
+      fetchData();
     }
   };
+
+  // 選択された世界観に属する組織のみに絞り込む（連動）
+  const displayOrgs = selectedFilterWorldId
+    ? organizations.filter(org => org.world_id === selectedFilterWorldId)
+    : organizations;
+
+  // フィルター条件に基づいてキャラクターを絞り込む
+  const filteredCharacters = characters.filter(char => {
+    // 世界観フィルター
+    if (selectedFilterWorldId) {
+      const hasWorld = char.worlds?.some((w: any) => w.id === selectedFilterWorldId);
+      if (!hasWorld) return false;
+    }
+    // 組織フィルター
+    if (selectedFilterOrgId) {
+      const hasOrg = char.organizations?.some((o: any) => o.id === selectedFilterOrgId);
+      if (!hasOrg) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="space-y-12 pb-32">
@@ -66,9 +99,57 @@ export default function CharacterListPage() {
         </div>
       </header>
 
+      {/* 連動フィルターセクション */}
+      <div className="flex flex-wrap gap-4 bg-slate-900/40 p-6 rounded-3xl border border-slate-800/80">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">世界観フィルター</label>
+          <select
+            value={selectedFilterWorldId}
+            onChange={e => {
+              setSelectedFilterWorldId(e.target.value);
+              setSelectedFilterOrgId(''); // 世界観が変わったら組織選択をクリア
+            }}
+            className="bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-xs text-white outline-none focus:border-blue-500 w-60 transition-all cursor-pointer font-bold"
+          >
+            <option value="">すべての世界観</option>
+            {worlds.map(w => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">所属組織フィルター</label>
+          <select
+            value={selectedFilterOrgId}
+            onChange={e => setSelectedFilterOrgId(e.target.value)}
+            className="bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-xs text-white outline-none focus:border-emerald-500 w-60 transition-all cursor-pointer font-bold"
+          >
+            <option value="">すべての組織</option>
+            {displayOrgs.map(o => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {(selectedFilterWorldId || selectedFilterOrgId) && (
+          <div className="flex items-end">
+            <button
+              onClick={() => {
+                setSelectedFilterWorldId('');
+                setSelectedFilterOrgId('');
+              }}
+              className="text-[10px] text-red-500/70 hover:text-red-500 font-bold uppercase py-3 px-4 hover:bg-red-500/10 rounded-2xl transition-all"
+            >
+              フィルター解除
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* キャラクターグリッド */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {characters.map(char => {
+        {filteredCharacters.map(char => {
           const isSelected = selectedIds.includes(char.id);
           return (
             <div 
