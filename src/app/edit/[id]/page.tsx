@@ -47,7 +47,7 @@ export default function EditCharacterPage() {
   const [allWorlds, setAllWorlds] = useState<any[]>([]);
   const [allOrgs, setAllOrgs] = useState<any[]>([]);
   const [allCharacters, setAllCharacters] = useState<any[]>([]);
-  
+
   // 選択データと関係性
   const [selectedWorlds, setSelectedWorlds] = useState<string[]>([]);
   const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
@@ -74,18 +74,18 @@ export default function EditCharacterPage() {
         if (cRes.data) {
           setName(cRes.data.name);
           setGender(cRes.data.gender || '未設定');
-          
+
           const desc = cRes.data.description ? JSON.parse(cRes.data.description) : {};
           setPersonality(desc.personality || '');
           setBackground(desc.background || '');
           setMemo(desc.memo || '');
           setStringAttributes(desc.string_attributes || {});
-          
+
           setStats(cRes.data.stats || {});
           setStatNotes(cRes.data.stat_notes || {});
           setSelectedWorlds(cRes.data.character_worlds.map((w: any) => w.world_id));
           setSelectedOrgs(cRes.data.character_organizations.map((o: any) => o.org_id));
-          
+
           // 組織関係の初期化
           const orgRelsMap: Record<string, string> = {};
           cRes.data.character_organizations.forEach((co: any) => {
@@ -211,20 +211,20 @@ export default function EditCharacterPage() {
   };
 
   const handleSave = async () => {
-    const descJson = JSON.stringify({ 
-      personality, 
-      background, 
+    const descJson = JSON.stringify({
+      personality,
+      background,
       memo,
       string_attributes: stringAttributes
     });
-    
+
     // 基本情報の更新
-    await supabase.from('characters').update({ 
-      name, 
+    await supabase.from('characters').update({
+      name,
       gender,
-      description: descJson, 
-      stats, 
-      stat_notes: statNotes 
+      description: descJson,
+      stats,
+      stat_notes: statNotes
     }).eq('id', id);
 
     // 中間テーブルの更新
@@ -237,10 +237,10 @@ export default function EditCharacterPage() {
     }
     if (selectedOrgs.length > 0) {
       await supabase.from('character_organizations').insert(
-        selectedOrgs.map(oId => ({ 
-          character_id: id, 
-          org_id: oId, 
-          relation_name: orgRelations[oId] || null 
+        selectedOrgs.map(oId => ({
+          character_id: id,
+          org_id: oId,
+          relation_name: orgRelations[oId] || null
         }))
       );
     }
@@ -256,7 +256,7 @@ export default function EditCharacterPage() {
         );
       }
     }
-    
+
     router.push('/');
     router.refresh();
   };
@@ -279,15 +279,15 @@ export default function EditCharacterPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-8 space-y-8">
-          
+
           {/* 名前＆性別/属性入力 */}
           <section className="bg-slate-800/20 p-8 rounded-[2.5rem] border border-slate-700 space-y-6">
             <div>
               <label className="text-[10px] font-black text-slate-500 mb-2 block uppercase tracking-widest">個体識別名 *</label>
-              <input 
+              <input
                 className="bg-transparent text-5xl font-bold text-white w-full outline-none border-b-2 border-slate-800 focus:border-blue-500 pb-2 transition-all placeholder:text-slate-700"
                 placeholder="名前を入力..."
-                value={name} onChange={e => setName(e.target.value)} 
+                value={name} onChange={e => setName(e.target.value)}
               />
             </div>
 
@@ -295,7 +295,7 @@ export default function EditCharacterPage() {
             <div>
               <div className="flex justify-between items-center mb-3">
                 <label className="text-[10px] font-black text-slate-500 block uppercase tracking-widest">性別 / 属性 タグ</label>
-                <button 
+                <button
                   onClick={addGenderTag}
                   className="text-[9px] bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700 hover:text-white hover:bg-slate-700 transition-all"
                 >
@@ -310,11 +310,10 @@ export default function EditCharacterPage() {
                       key={tag}
                       type="button"
                       onClick={() => setGender(tag)}
-                      className={`text-xs font-bold px-3.5 py-1.5 rounded-xl border transition-all ${
-                        isSelected 
-                          ? 'bg-indigo-600 border-indigo-400 text-white shadow-md' 
+                      className={`text-xs font-bold px-3.5 py-1.5 rounded-xl border transition-all ${isSelected
+                          ? 'bg-indigo-600 border-indigo-400 text-white shadow-md'
                           : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                      }`}
+                        }`}
                     >
                       {tag}
                     </button>
@@ -333,7 +332,7 @@ export default function EditCharacterPage() {
                   {Object.keys(stringAttributes).map(attrName => (
                     <div key={attrName} className="space-y-1.5 bg-slate-900/80 p-3 rounded-xl border border-slate-800">
                       <span className="text-xs font-bold text-slate-300 block">{attrName}</span>
-                      <input 
+                      <input
                         type="text"
                         placeholder="例: 隊長, 光属性, ランクA..."
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-indigo-300 outline-none focus:border-indigo-500"
@@ -370,27 +369,27 @@ export default function EditCharacterPage() {
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col gap-1">
                       <span className="text-sm font-bold text-white bg-slate-800 px-3 py-1 rounded-lg border border-slate-700 w-fit">{s}</span>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="備考(∞など)"
                         className="bg-transparent text-[10px] text-blue-400 outline-none w-24 border-b border-transparent focus:border-blue-500/30"
                         value={statNotes[s] || ''}
-                        onChange={e => setStatNotes({...statNotes, [s]: e.target.value})}
+                        onChange={e => setStatNotes({ ...statNotes, [s]: e.target.value })}
                       />
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <input 
+                      <input
                         type="number" min="0" max="999"
                         className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-right w-20 text-blue-400 font-mono text-lg outline-none"
-                        value={stats[s]} 
-                        onChange={e => setStats({...stats, [s]: Math.max(0, Math.min(999, Number(e.target.value)))})} 
+                        value={stats[s]}
+                        onChange={e => setStats({ ...stats, [s]: Math.max(0, Math.min(999, Number(e.target.value))) })}
                       />
                       <button onClick={() => {
-                        const ns = {...stats}; delete ns[s]; setStats(ns);
+                        const ns = { ...stats }; delete ns[s]; setStats(ns);
                       }} className="text-[8px] text-red-500/50 hover:text-red-500 uppercase font-bold">Delete</button>
                     </div>
                   </div>
-                  <input type="range" min="0" max="999" className="w-full accent-blue-500" value={stats[s]} onChange={e => setStats({...stats, [s]: Number(e.target.value)})} />
+                  <input type="range" min="0" max="999" className="w-full accent-blue-500" value={stats[s]} onChange={e => setStats({ ...stats, [s]: Number(e.target.value) })} />
                 </div>
               ))}
             </div>
@@ -403,7 +402,7 @@ export default function EditCharacterPage() {
                 <h3 className="text-xs font-black text-indigo-400 uppercase tracking-widest">キャラクター相関関係設定</h3>
                 <p className="text-[10px] text-slate-500">他キャラクターとの関係（矢印と説明ラベル）を定義します</p>
               </div>
-              <button 
+              <button
                 type="button"
                 onClick={() => setRelations([...relations, { target_character_id: '', relation_name: '' }])}
                 className="text-[9px] bg-indigo-500/10 text-indigo-400 px-3 py-1.5 rounded-full border border-indigo-500/30 hover:bg-indigo-500 hover:text-white transition-all font-bold"
@@ -470,7 +469,7 @@ export default function EditCharacterPage() {
           <div className="sticky top-28 space-y-6">
             <TagSelector label="世界観（自動インポート）" color="text-blue-500" options={allWorlds} selected={selectedWorlds} onToggle={handleWorldToggle} />
             <TagSelector label="所属組織" color="text-emerald-500" options={allOrgs} selected={selectedOrgs} onToggle={handleOrgToggle} />
-            
+
             {selectedOrgs.length > 0 && (
               <div className="bg-slate-800/20 p-6 rounded-3xl border border-slate-700 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <h3 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">組織内での役職・関係性</h3>
@@ -481,7 +480,7 @@ export default function EditCharacterPage() {
                     return (
                       <div key={oId} className="flex flex-col gap-1.5 bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
                         <span className="text-xs font-bold text-slate-300">{org.name}</span>
-                        <input 
+                        <input
                           type="text"
                           placeholder="例: 隊長、元メンバー、潜入中..."
                           className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-emerald-400 outline-none focus:border-emerald-500"
@@ -514,9 +513,9 @@ function TextAreaBlock({ label, value, onChange, placeholder }: any) {
   return (
     <div className="space-y-2">
       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">{label}</label>
-      <textarea 
+      <textarea
         className="bg-slate-900/80 w-full rounded-2xl p-4 text-slate-200 outline-none h-28 border border-slate-800 focus:border-blue-500 transition-all resize-none text-sm leading-relaxed"
-        value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} 
+        value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
       />
     </div>
   );
@@ -528,9 +527,9 @@ function TagSelector({ label, color, options, selected, onToggle }: any) {
       <h3 className={`text-[10px] font-black ${color} mb-4 uppercase tracking-widest`}>{label}</h3>
       <div className="flex flex-wrap gap-2">
         {options.map((opt: any) => (
-          <button 
+          <button
             key={opt.id} type="button"
-            onClick={() => onToggle(opt.id)} 
+            onClick={() => onToggle(opt.id)}
             className={`px-3 py-1.5 rounded-xl text-[10px] font-bold border transition-all ${selected.includes(opt.id) ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'}`}
           >
             {opt.name}
