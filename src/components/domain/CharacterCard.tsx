@@ -2,7 +2,14 @@
 import Link from 'next/link';
 import { Character } from '../../types/database';
 
+// 作成・編集画面の入力上限に合わせる
+const STAT_MAX = 999;
+const MAX_VISIBLE_STATS = 4;
+const STAT_COLORS = ['bg-rose-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500'];
+
 export default function CharacterCard({ character }: { character: Character }) {
+  const statEntries = Object.entries(character.stats ?? {}).slice(0, MAX_VISIBLE_STATS);
+
   return (
     <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 backdrop-blur-sm hover:border-blue-500/50 transition-all group">
       <div className="flex justify-between items-start mb-6">
@@ -29,10 +36,15 @@ export default function CharacterCard({ character }: { character: Character }) {
         ))}
       </div>
 
-      <div className="space-y-4">
-        <StatBar label="ATK" value={character.stats?.attack ?? character.stats?.ATK ?? 0} color="bg-rose-500" />
-        <StatBar label="DEF" value={character.stats?.defense ?? character.stats?.DEF ?? 0} color="bg-sky-500" />
-      </div>
+      {statEntries.length === 0 ? (
+        <p className="text-[10px] text-slate-600">パラメータ未設定</p>
+      ) : (
+        <div className="space-y-4">
+          {statEntries.map(([label, value], i) => (
+            <StatBar key={label} label={label} value={Number(value) || 0} color={STAT_COLORS[i % STAT_COLORS.length]} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -45,7 +57,7 @@ function StatBar({ label, value, color }: { label: string, value: number, color:
         <span>{value}</span>
       </div>
       <div className="h-1 bg-slate-900 rounded-full overflow-hidden">
-        <div className={`${color} h-full transition-all duration-1000`} style={{ width: `${value}%` }} />
+        <div className={`${color} h-full transition-all duration-1000`} style={{ width: `${Math.min(100, (value / STAT_MAX) * 100)}%` }} />
       </div>
     </div>
   );
