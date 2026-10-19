@@ -14,6 +14,13 @@ export type StatSchemaItem = {
   type: 'number' | 'string';
 };
 
+// id は保存済みの行のみ持つ（画面で追加した行は未設定）
+type RelationRow = {
+  id?: string;
+  target_character_id: string;
+  relation_name: string;
+};
+
 function parseSchemaItems(schema: any): StatSchemaItem[] {
   if (!Array.isArray(schema)) return [];
   return schema.map(item => {
@@ -51,8 +58,13 @@ export default function EditCharacterPage() {
   // 選択データと関係性
   const [selectedWorlds, setSelectedWorlds] = useState<string[]>([]);
   const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
-  const [relations, setRelations] = useState<{ target_character_id: string; relation_name: string }[]>([]);
+  const [relations, setRelations] = useState<RelationRow[]>([]);
   const [orgRelations, setOrgRelations] = useState<Record<string, string>>({});
+
+  // 保存時の差分計算用（読み込み時点の紐付け）
+  const [initialWorlds, setInitialWorlds] = useState<string[]>([]);
+  const [initialOrgRelations, setInitialOrgRelations] = useState<Record<string, string>>({});
+  const [initialRelations, setInitialRelations] = useState<RelationRow[]>([]);
 
   useEffect(() => {
     const init = async () => {
@@ -62,7 +74,7 @@ export default function EditCharacterPage() {
           supabase.from('organizations').select('*'),
           supabase.from('characters').select('*, character_worlds(world_id), character_organizations(org_id, relation_name)').eq('id', id).single(),
           supabase.from('characters').select('id, name').neq('id', id),
-          supabase.from('character_relations').select('target_character_id, relation_name').eq('source_character_id', id),
+          supabase.from('character_relations').select('id, target_character_id, relation_name').eq('source_character_id', id),
           supabase.from('characters').select('gender')
         ]);
 
@@ -70,6 +82,7 @@ export default function EditCharacterPage() {
         setAllOrgs(oRes.data || []);
         setAllCharacters(allCharsRes.data || []);
         setRelations(relRes.data || []);
+        setInitialRelations(relRes.data || []);
 
         if (cRes.data) {
           setName(cRes.data.name);
@@ -83,7 +96,9 @@ export default function EditCharacterPage() {
 
           setStats(cRes.data.stats || {});
           setStatNotes(cRes.data.stat_notes || {});
-          setSelectedWorlds(cRes.data.character_worlds.map((w: any) => w.world_id));
+          const worldIds = cRes.data.character_worlds.map((w: any) => w.world_id);
+          setSelectedWorlds(worldIds);
+          setInitialWorlds(worldIds);
           setSelectedOrgs(cRes.data.character_organizations.map((o: any) => o.org_id));
 
           // 組織関係の初期化
@@ -92,6 +107,7 @@ export default function EditCharacterPage() {
             orgRelsMap[co.org_id] = co.relation_name || '';
           });
           setOrgRelations(orgRelsMap);
+          setInitialOrgRelations(orgRelsMap);
         }
 
         const dbGenders = (genderRes.data || [])
@@ -201,16 +217,48 @@ export default function EditCharacterPage() {
     }
   };
 
+  // 既存の値は上書きしない（新規作成画面と同じ挙動）
   const applyStandardStats = () => {
-    setStats({ ...stats, 'HP': 100, '攻撃力': 10, '防御力': 10 });
+    setStats(prev => ({
+      ...prev,
+      'HP': prev['HP'] ?? 100,
+      '攻撃力': prev['攻撃力'] ?? 10,
+      '防御力': prev['防御力'] ?? 10
+    }));
   };
 
   const addCustomStat = () => {
     const sName = prompt("変数名を入力（例：運、カリスマ）");
-    if (sName) setStats({ ...stats, [sName]: 0 });
+    if (sName && sName.trim() !== '') {
+      const trimmed = sName.trim();
+      setStats(prev => ({ ...prev, [trimmed]: prev[trimmed] ?? 0 }));
+    }
+  };
+
+  // 変数と一緒に備考も削除する
+  const deleteStat = (key: string) => {
+    const ns = { ...stats };
+    delete ns[key];
+    setStats(ns);
+
+    const nn = { ...statNotes };
+    delete nn[key];
+    setStatNotes(nn);
   };
 
   const handleSave = async () => {
+    // 失敗した時点で中断し、成功したように一覧へ戻らない
+    let partiallySaved = false;
+    const check = (error: { message: string } | null, label: string) => {
+      if (!error) return true;
+      console.error(`${label} error:`, error);
+      alert(
+        `${label}に失敗しました:\n${error.message}` +
+        (partiallySaved ? '\n\n一部の変更は保存済みです。ページを再読み込みして内容を確認してください。' : '')
+      );
+      return false;
+    };
+
     const descJson = JSON.stringify({
       personality,
       background,
@@ -219,42 +267,90 @@ export default function EditCharacterPage() {
     });
 
     // 基本情報の更新
-    await supabase.from('characters').update({
+    const { error: charError } = await supabase.from('characters').update({
       name,
       gender,
       description: descJson,
       stats,
       stat_notes: statNotes
     }).eq('id', id);
+    if (!check(charError, 'キャラクター情報の保存')) return;
+    partiallySaved = true;
 
     // 中間テーブルの更新
-    await supabase.from('character_worlds').delete().eq('character_id', id);
-    await supabase.from('character_organizations').delete().eq('character_id', id);
-    await supabase.from('character_relations').delete().eq('source_character_id', id);
+    // 全削除→再登録だと途中で失敗した際に紐付けが消えるため、変更分のみ反映する
 
-    if (selectedWorlds.length > 0) {
-      await supabase.from('character_worlds').insert(selectedWorlds.map(wId => ({ character_id: id, world_id: wId })));
+    // 世界観
+    const worldsToRemove = initialWorlds.filter(wId => !selectedWorlds.includes(wId));
+    const worldsToAdd = selectedWorlds.filter(wId => !initialWorlds.includes(wId));
+    if (worldsToRemove.length > 0) {
+      const { error } = await supabase.from('character_worlds').delete().eq('character_id', id).in('world_id', worldsToRemove);
+      if (!check(error, '世界観の紐付け解除')) return;
     }
-    if (selectedOrgs.length > 0) {
-      await supabase.from('character_organizations').insert(
-        selectedOrgs.map(oId => ({
+    if (worldsToAdd.length > 0) {
+      const { error } = await supabase.from('character_worlds').insert(worldsToAdd.map(wId => ({ character_id: id, world_id: wId })));
+      if (!check(error, '世界観の紐付け')) return;
+    }
+
+    // 組織（役職のみ変更されたものは update）
+    const initialOrgIds = Object.keys(initialOrgRelations);
+    const orgsToRemove = initialOrgIds.filter(oId => !selectedOrgs.includes(oId));
+    const orgsToAdd = selectedOrgs.filter(oId => !initialOrgIds.includes(oId));
+    const orgsToUpdate = selectedOrgs.filter(
+      oId => initialOrgIds.includes(oId) && (orgRelations[oId] || '') !== initialOrgRelations[oId]
+    );
+    if (orgsToRemove.length > 0) {
+      const { error } = await supabase.from('character_organizations').delete().eq('character_id', id).in('org_id', orgsToRemove);
+      if (!check(error, '組織の紐付け解除')) return;
+    }
+    if (orgsToAdd.length > 0) {
+      const { error } = await supabase.from('character_organizations').insert(
+        orgsToAdd.map(oId => ({
           character_id: id,
           org_id: oId,
           relation_name: orgRelations[oId] || null
         }))
       );
+      if (!check(error, '組織の紐付け')) return;
     }
-    if (relations.length > 0) {
-      const validRels = relations.filter(r => r.target_character_id && r.relation_name.trim() !== '');
-      if (validRels.length > 0) {
-        await supabase.from('character_relations').insert(
-          validRels.map(r => ({
-            source_character_id: id,
-            target_character_id: r.target_character_id,
-            relation_name: r.relation_name.trim()
-          }))
-        );
-      }
+    for (const oId of orgsToUpdate) {
+      const { error } = await supabase
+        .from('character_organizations')
+        .update({ relation_name: orgRelations[oId] || null })
+        .eq('character_id', id)
+        .eq('org_id', oId);
+      if (!check(error, '組織内での役職の更新')) return;
+    }
+
+    // キャラクター間の関係（入力が空の行は削除扱い）
+    const validRels = relations.filter(r => r.target_character_id && r.relation_name.trim() !== '');
+    const keptRelIds = validRels.flatMap(r => (r.id ? [r.id] : []));
+    const relIdsToDelete = initialRelations.flatMap(r => (r.id && !keptRelIds.includes(r.id) ? [r.id] : []));
+    const relsToInsert = validRels.filter(r => !r.id);
+    const relsToUpdate = validRels.filter(r => {
+      const before = initialRelations.find(ir => ir.id === r.id);
+      return before && (before.target_character_id !== r.target_character_id || before.relation_name !== r.relation_name.trim());
+    });
+    if (relIdsToDelete.length > 0) {
+      const { error } = await supabase.from('character_relations').delete().in('id', relIdsToDelete);
+      if (!check(error, '関係の削除')) return;
+    }
+    if (relsToInsert.length > 0) {
+      const { error } = await supabase.from('character_relations').insert(
+        relsToInsert.map(r => ({
+          source_character_id: id,
+          target_character_id: r.target_character_id,
+          relation_name: r.relation_name.trim()
+        }))
+      );
+      if (!check(error, '関係の追加')) return;
+    }
+    for (const r of relsToUpdate) {
+      const { error } = await supabase
+        .from('character_relations')
+        .update({ target_character_id: r.target_character_id, relation_name: r.relation_name.trim() })
+        .eq('id', r.id);
+      if (!check(error, '関係の更新')) return;
     }
 
     router.push('/');
@@ -384,9 +480,7 @@ export default function EditCharacterPage() {
                         value={stats[s]}
                         onChange={e => setStats({ ...stats, [s]: Math.max(0, Math.min(999, Number(e.target.value))) })}
                       />
-                      <button onClick={() => {
-                        const ns = { ...stats }; delete ns[s]; setStats(ns);
-                      }} className="text-[8px] text-red-500/50 hover:text-red-500 uppercase font-bold">Delete</button>
+                      <button onClick={() => deleteStat(s)} className="text-[8px] text-red-500/50 hover:text-red-500 uppercase font-bold">Delete</button>
                     </div>
                   </div>
                   <input type="range" min="0" max="999" className="w-full accent-blue-500" value={stats[s]} onChange={e => setStats({ ...stats, [s]: Number(e.target.value) })} />
@@ -424,11 +518,7 @@ export default function EditCharacterPage() {
                       <select
                         className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-indigo-500"
                         value={rel.target_character_id}
-                        onChange={e => {
-                          const updated = [...relations];
-                          updated[idx].target_character_id = e.target.value;
-                          setRelations(updated);
-                        }}
+                        onChange={e => setRelations(relations.map((r, i) => i === idx ? { ...r, target_character_id: e.target.value } : r))}
                       >
                         <option value="">キャラクターを選択...</option>
                         {allCharacters.map(char => (
@@ -443,11 +533,7 @@ export default function EditCharacterPage() {
                         placeholder="例: 親友、ライバル、宿敵..."
                         className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-indigo-300 outline-none focus:border-indigo-500"
                         value={rel.relation_name}
-                        onChange={e => {
-                          const updated = [...relations];
-                          updated[idx].relation_name = e.target.value;
-                          setRelations(updated);
-                        }}
+                        onChange={e => setRelations(relations.map((r, i) => i === idx ? { ...r, relation_name: e.target.value } : r))}
                       />
                     </div>
                     <button

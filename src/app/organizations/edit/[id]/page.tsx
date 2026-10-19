@@ -42,6 +42,8 @@ export default function EditOrgPage() {
   const [allWorlds, setAllWorlds] = useState<any[]>([]);
   const [allCharacters, setAllCharacters] = useState<any[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  // 保存時の差分計算用（読み込み時点のメンバー）
+  const [initialMembers, setInitialMembers] = useState<string[]>([]);
 
   // 世界観から継承された組織用変数
   const [inheritedWorldSchema, setInheritedWorldSchema] = useState<StatSchemaItem[]>([]);
@@ -83,7 +85,9 @@ export default function EditOrgPage() {
 
       setAllWorlds(wRes.data || []);
       setAllCharacters(cRes.data || []);
-      setSelectedMembers((mRes.data || []).map((m: any) => m.character_id));
+      const memberIds = (mRes.data || []).map((m: any) => m.character_id);
+      setSelectedMembers(memberIds);
+      setInitialMembers(memberIds);
       setLoading(false);
     };
     fetchData();
@@ -121,11 +125,31 @@ export default function EditOrgPage() {
     }
 
     // 中間テーブル（メンバー紐付け）の更新
-    await supabase.from('character_organizations').delete().eq('org_id', id);
-    if (selectedMembers.length > 0) {
-      await supabase.from('character_organizations').insert(
-        selectedMembers.map(charId => ({ character_id: charId, org_id: id }))
+    // 全削除→再登録だとキャラ側で設定した役職(relation_name)が消えるため、増減分のみ反映する
+    const removedMembers = initialMembers.filter(charId => !selectedMembers.includes(charId));
+    const addedMembers = selectedMembers.filter(charId => !initialMembers.includes(charId));
+
+    if (removedMembers.length > 0) {
+      const { error: removeError } = await supabase
+        .from('character_organizations')
+        .delete()
+        .eq('org_id', id)
+        .in('character_id', removedMembers);
+      if (removeError) {
+        console.error('Org member remove error:', removeError);
+        alert(`メンバーの解除に失敗しました:\n${removeError.message}\n\n組織情報は保存済みです。ページを再読み込みして内容を確認してください。`);
+        return;
+      }
+    }
+    if (addedMembers.length > 0) {
+      const { error: addError } = await supabase.from('character_organizations').insert(
+        addedMembers.map(charId => ({ character_id: charId, org_id: id }))
       );
+      if (addError) {
+        console.error('Org member add error:', addError);
+        alert(`メンバーの追加に失敗しました:\n${addError.message}\n\n組織情報は保存済みです。ページを再読み込みして内容を確認してください。`);
+        return;
+      }
     }
 
     router.push('/organizations');
