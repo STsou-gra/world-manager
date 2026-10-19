@@ -25,6 +25,29 @@ export type CharacterRelation = {
   target_character?: Character;
 };
 
+// 組織 → 組織の関係
+export type OrganizationRelation = {
+  id: string;
+  source_org_id: string;
+  target_org_id: string;
+  relation_name: string;
+};
+
+// キャラ → 組織の関係（所属とは別）
+export type CharacterOrgRelation = {
+  id: string;
+  character_id: string;
+  org_id: string;
+  relation_name: string;
+};
+
+// 相関図の配置（世界観ごと）
+export type RelationLayout = {
+  world_id: string;
+  positions: Record<string, { x: number; y: number }>;
+  org_sizes: Record<string, { width: number; height: number }>;
+};
+
 export type CharacterOrganization = {
   character_id: string;
   org_id: string;

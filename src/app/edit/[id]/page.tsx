@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
+import { RelationRow as TargetRelationRow, saveRelationRows } from '../../../lib/relationRows';
+import RelationRowsEditor from '../../../components/domain/RelationRowsEditor';
 
 const DEFAULT_GENDER_TAGS = ['未設定', '女性', '男性', 'アンドロイド', 'その他'];
 const STORAGE_KEY_GENDER_TAGS = 'world_manager_custom_gender_tags';
@@ -66,17 +68,26 @@ export default function EditCharacterPage() {
   const [initialOrgRelations, setInitialOrgRelations] = useState<Record<string, string>>({});
   const [initialRelations, setInitialRelations] = useState<RelationRow[]>([]);
 
+  // 組織への関係（所属とは別）
+  const [charOrgRelations, setCharOrgRelations] = useState<TargetRelationRow[]>([]);
+  const [initialCharOrgRelations, setInitialCharOrgRelations] = useState<TargetRelationRow[]>([]);
+
   useEffect(() => {
     const init = async () => {
       try {
-        const [wRes, oRes, cRes, allCharsRes, relRes, genderRes] = await Promise.all([
+        const [wRes, oRes, cRes, allCharsRes, relRes, genderRes, charOrgRelRes] = await Promise.all([
           supabase.from('worlds').select('*'),
           supabase.from('organizations').select('*'),
           supabase.from('characters').select('*, character_worlds(world_id), character_organizations(org_id, relation_name)').eq('id', id).single(),
           supabase.from('characters').select('id, name').neq('id', id),
           supabase.from('character_relations').select('id, target_character_id, relation_name').eq('source_character_id', id),
-          supabase.from('characters').select('gender')
+          supabase.from('characters').select('gender'),
+          supabase.from('character_org_relations').select('id, org_id, relation_name').eq('character_id', id)
         ]);
+
+        const charOrgRows = (charOrgRelRes.data || []).map(r => ({ id: r.id, target_id: r.org_id, relation_name: r.relation_name }));
+        setCharOrgRelations(charOrgRows);
+        setInitialCharOrgRelations(charOrgRows);
 
         setAllWorlds(wRes.data || []);
         setAllOrgs(oRes.data || []);
@@ -353,6 +364,17 @@ export default function EditCharacterPage() {
       if (!check(error, '関係の更新')) return;
     }
 
+    // 組織への関係（所属とは別）
+    const charOrgError = await saveRelationRows({
+      table: 'character_org_relations',
+      ownerColumn: 'character_id',
+      ownerId: id as string,
+      targetColumn: 'org_id',
+      initial: initialCharOrgRelations,
+      current: charOrgRelations,
+    });
+    if (!check(charOrgError, '組織への関係の保存')) return;
+
     router.push('/');
     router.refresh();
   };
@@ -548,6 +570,20 @@ export default function EditCharacterPage() {
               </div>
             )}
           </section>
+
+          {/* 組織への関係（所属とは別） */}
+          <RelationRowsEditor
+            title="組織への関係（所属以外）"
+            description="所属していない組織への感情や関わり（相関図にキャラから組織への矢印で表示されます）"
+            theme="rose"
+            targetLabel="相手の組織"
+            targetPlaceholder="組織を選択..."
+            namePlaceholder="例: 復讐心、憧れ、潜入中..."
+            emptyMessage="組織への関係はまだ設定されていません。「+ 関係を追加」ボタンから定義できます。"
+            options={allOrgs}
+            rows={charOrgRelations}
+            onChange={setCharOrgRelations}
+          />
         </div>
 
         {/* サイドバー */}

@@ -4,6 +4,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '../../../../lib/supabase';
+import { RelationRow, saveRelationRows } from '../../../../lib/relationRows';
+import RelationRowsEditor from '../../../../components/domain/RelationRowsEditor';
 
 export type StatSchemaItem = {
   name: string;
@@ -45,17 +47,29 @@ export default function EditOrgPage() {
   // 保存時の差分計算用（読み込み時点のメンバー）
   const [initialMembers, setInitialMembers] = useState<string[]>([]);
 
+  // 他組織との関係
+  const [otherOrgs, setOtherOrgs] = useState<{ id: string; name: string }[]>([]);
+  const [orgRelations, setOrgRelations] = useState<RelationRow[]>([]);
+  const [initialOrgRelations, setInitialOrgRelations] = useState<RelationRow[]>([]);
+
   // 世界観から継承された組織用変数
   const [inheritedWorldSchema, setInheritedWorldSchema] = useState<StatSchemaItem[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
-      const [oRes, wRes, cRes, mRes] = await Promise.all([
+      const [oRes, wRes, cRes, mRes, otherOrgsRes, orgRelRes] = await Promise.all([
         supabase.from('organizations').select('*').eq('id', id).single(),
         supabase.from('worlds').select('*'),
         supabase.from('characters').select('id, name, gender'),
-        supabase.from('character_organizations').select('character_id').eq('org_id', id)
+        supabase.from('character_organizations').select('character_id').eq('org_id', id),
+        supabase.from('organizations').select('id, name').neq('id', id),
+        supabase.from('organization_relations').select('id, target_org_id, relation_name').eq('source_org_id', id)
       ]);
+
+      setOtherOrgs(otherOrgsRes.data || []);
+      const orgRelRows = (orgRelRes.data || []).map(r => ({ id: r.id, target_id: r.target_org_id, relation_name: r.relation_name }));
+      setOrgRelations(orgRelRows);
+      setInitialOrgRelations(orgRelRows);
       
       if (oRes.data) {
         setName(oRes.data.name);
@@ -152,6 +166,20 @@ export default function EditOrgPage() {
       }
     }
 
+    const relError = await saveRelationRows({
+      table: 'organization_relations',
+      ownerColumn: 'source_org_id',
+      ownerId: id as string,
+      targetColumn: 'target_org_id',
+      initial: initialOrgRelations,
+      current: orgRelations,
+    });
+    if (relError) {
+      console.error('Org relation save error:', relError);
+      alert(`他組織との関係の保存に失敗しました:\n${relError.message}\n\n組織情報は保存済みです。ページを再読み込みして内容を確認してください。`);
+      return;
+    }
+
     router.push('/organizations');
     router.refresh();
   };
@@ -234,12 +262,26 @@ export default function EditOrgPage() {
 
           {/* 2. 組織「固有」の変数（型選択付きタグ編集） */}
           <section className="bg-emerald-500/5 p-8 rounded-[2.5rem] border border-emerald-500/20 space-y-6">
-            <TypedSchemaEditor 
-              label="組織固有のステータス" 
-              schema={orgSpecificSchema} 
-              onChange={setOrgSpecificSchema} 
+            <TypedSchemaEditor
+              label="組織固有のステータス"
+              schema={orgSpecificSchema}
+              onChange={setOrgSpecificSchema}
             />
           </section>
+
+          {/* 3. 他組織との関係 */}
+          <RelationRowsEditor
+            title="他組織との関係"
+            description="この組織から見た、他の組織との関係（相関図に矢印で表示されます）"
+            theme="amber"
+            targetLabel="相手の組織"
+            targetPlaceholder="組織を選択..."
+            namePlaceholder="例: 同盟、敵対、下部組織..."
+            emptyMessage="他組織との関係はまだ設定されていません。「+ 関係を追加」ボタンから定義できます。"
+            options={otherOrgs}
+            rows={orgRelations}
+            onChange={setOrgRelations}
+          />
         </div>
 
         <aside className="lg:col-span-4 space-y-6">
