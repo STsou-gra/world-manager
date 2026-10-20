@@ -16,6 +16,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=（anon public キー）
 
 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` でも動きます。
 
+ログイン画面の「新規登録」ボタンは、初期状態では表示しません。自分以外の人にも登録してもらう場合だけ、`NEXT_PUBLIC_ALLOW_SIGNUP=true` を追加します（Supabase 側でも新規登録をオンにする必要があります）。
+
 ### 2. データベース
 
 Supabase 管理画面の SQL Editor で、`supabase/migrations/` のファイルを**番号順に**実行します。
@@ -29,14 +31,15 @@ Supabase 管理画面の SQL Editor で、`supabase/migrations/` のファイル
 
 Supabase CLI を使う場合は `supabase db push` でも適用できます。
 
-### 3. ログインの設定
+### 3. ログインの設定（自分だけで使う場合）
 
-Supabase 管理画面の「Authentication → URL Configuration」で、次を設定します。
+1. **自分のアカウントを作る**: Supabase 管理画面の「Authentication → Users → Add user → Create new user」で、メールアドレスとパスワードを入力し、「Auto Confirm User」にチェックを入れて作成します（確認メールなしで、すぐログインできます）
+2. **新規登録を止める**: 「Authentication → Sign In / Providers」で「Allow new users to sign up」をオフにします。公開URLを知った人がアカウントを作れなくなります（すでにあるアカウントは、そのままログインできます）
+3. **URL を登録する**: 「Authentication → URL Configuration」で次を設定します
+   - Site URL: `http://localhost:3000`（Vercel で公開した場合は公開URL）
+   - Redirect URLs: `http://localhost:3000/**`（公開した場合は `https://公開URL/auth/callback` も追加）
 
-- Site URL: `http://localhost:3000`（公開する場合はそのURL）
-- Redirect URLs: `http://localhost:3000/**`（公開する場合はそのURLも追加）
-
-新規登録時に届く確認メールを省きたい場合は、Authentication の Email プロバイダー設定で「Confirm email」をオフにします。
+Supabase 標準のメール送信は、Supabase のチームメンバーのメールアドレスにしか届かず、送信数も少なく制限されています。アカウントは上の方法で、管理画面から作るのが確実です。
 
 ### 4. 起動
 
@@ -51,12 +54,30 @@ http://localhost:3000 を開くとログイン画面が表示されます。
 
 `20261019000100_auth_rls.sql` を実行すると、これまでのデータは持ち主が決まっていないため、アプリから見えなくなります。次の順番で移行してください。
 
-1. 自分のアカウントを作る（アプリのログイン画面で新規登録するか、管理画面の「Authentication → Users → Add user」で作成）
+1. 自分のアカウントを作る（上の「3. ログインの設定」の 1）
 2. SQL Editor で `supabase/migrations/` のファイルを番号順に実行する
 3. `supabase/scripts/assign_existing_data.sql` のメールアドレスを自分のものに書き換えて実行する
 4. アプリにログインすると、これまでのデータが表示される
 
 相関図の配置は、これまでブラウザに保存されていました。そのブラウザで初めて相関図を開いたときに、自動でアカウントに引き継がれます。
+
+## Vercel で公開する
+
+**公開する前に**、上の「2. データベース」と「既存のデータがある場合」の手順を済ませてください。Supabase の接続キーは公開ページから誰でも見られるため、RLS が設定されていないと、URL を知った人が全データを読み書きできてしまいます（管理画面の Table Editor で、各テーブルの RLS が有効になっていることを確認できます）。
+
+1. https://vercel.com に「Continue with GitHub」で登録する（個人・非商用なら無料の Hobby プランで可）
+2. 「Add New… → Project」でこのリポジトリを Import する（一覧に出ない場合は「Adjust GitHub App Permissions」でアクセスを許可）
+3. Framework Preset が Next.js になっていることを確認し、「Environment Variables」に `.env.local` と同じ値を入れる
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. 「Deploy」を押す。数分で `https://〇〇.vercel.app` の公開URLができる
+5. Supabase 管理画面の「Authentication → URL Configuration」で、Site URL を公開URLにし、Redirect URLs に `https://公開URL/auth/callback` を追加する
+6. 公開URLを開き、ログインしてデータが表示されることを確認する
+
+公開後の注意:
+
+- `main` に取り込むたびに、本番が自動で更新されます。PR ごとにプレビュー用のURLも作られますが、本番と同じデータベースを使います。プレビューでもログインしたい場合は、Redirect URLs に `https://*-<Vercelのアカウント名またはチーム名>.vercel.app/**` を追加します
+- `NEXT_PUBLIC_` で始まる環境変数はビルド時に埋め込まれます。Vercel で値を変えたら、「Deployments」の「…」→「Redeploy」で再デプロイしてください
 
 
 ## Next.jsの開始手順

@@ -6,6 +6,9 @@ import { useSearchParams } from 'next/navigation';
 import { supabase, getSupabaseConfigStatus } from '../../lib/supabase';
 import { safeNextPath } from '../../lib/safeNextPath';
 
+// 新規登録ボタンを出すかどうか。自分専用なら未設定のままにし、Supabase 側でも新規登録をオフにする
+const allowSignup = process.env.NEXT_PUBLIC_ALLOW_SIGNUP === 'true';
+
 // よく出る認証エラーを日本語にする
 function translateAuthError(message: string) {
   if (message.includes('Invalid login credentials')) return 'メールアドレスまたはパスワードが違います。';
@@ -13,6 +16,7 @@ function translateAuthError(message: string) {
   if (message.includes('User already registered')) return 'このメールアドレスはすでに登録されています。ログインしてください。';
   if (message.includes('Password should be at least')) return 'パスワードは6文字以上にしてください。';
   if (message.includes('rate limit')) return '短時間に試行しすぎました。しばらく待ってからもう一度お試しください。';
+  if (message.includes('Signups not allowed')) return '新規登録は受け付けていません。';
   return message;
 }
 
@@ -134,13 +138,15 @@ function LoginForm() {
         </button>
       </form>
 
-      <button
-        type="button"
-        onClick={() => { setMode(isLogin ? 'signup' : 'login'); setError(''); setMessage(''); }}
-        className="w-full text-xs text-slate-500 hover:text-white transition-all"
-      >
-        {isLogin ? 'アカウントをお持ちでない方は新規登録' : 'すでにアカウントをお持ちの方はログイン'}
-      </button>
+      {allowSignup && (
+        <button
+          type="button"
+          onClick={() => { setMode(isLogin ? 'signup' : 'login'); setError(''); setMessage(''); }}
+          className="w-full text-xs text-slate-500 hover:text-white transition-all"
+        >
+          {isLogin ? 'アカウントをお持ちでない方は新規登録' : 'すでにアカウントをお持ちの方はログイン'}
+        </button>
+      )}
     </div>
   );
 }
