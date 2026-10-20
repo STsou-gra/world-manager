@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import UserMenu from './UserMenu';
 
 export default function Navbar() {
   return (
@@ -7,11 +8,14 @@ export default function Navbar() {
         <Link href="/" className="text-2xl font-black bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent tracking-tighter">
           設定資料データベース
         </Link>
-        <div className="flex gap-2 bg-slate-900 p-1 rounded-2xl border border-slate-800">
-          <NavLink href="/" label="キャラクター" />
-          <NavLink href="/worlds" label="世界観" />
-          <NavLink href="/organizations" label="組織" />
-          <NavLink href="/relations" label="相関図" />
+        <div className="flex items-center gap-4">
+          <div className="flex gap-2 bg-slate-900 p-1 rounded-2xl border border-slate-800">
+            <NavLink href="/" label="キャラクター" />
+            <NavLink href="/worlds" label="世界観" />
+            <NavLink href="/organizations" label="組織" />
+            <NavLink href="/relations" label="相関図" />
+          </div>
+          <UserMenu />
         </div>
       </div>
     </nav>

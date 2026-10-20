@@ -4,6 +4,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../../lib/supabase';
+import { RelationRow, saveRelationRows } from '../../../lib/relationRows';
+import RelationRowsEditor from '../../../components/domain/RelationRowsEditor';
 
 export type StatSchemaItem = {
   name: string;
@@ -22,7 +24,11 @@ export default function NewOrgPage() {
   // マスタデータ
   const [allWorlds, setAllWorlds] = useState<any[]>([]);
   const [allCharacters, setAllCharacters] = useState<any[]>([]);
-  
+  const [allOrgs, setAllOrgs] = useState<{ id: string; name: string }[]>([]);
+
+  // 他組織との関係
+  const [orgRelations, setOrgRelations] = useState<RelationRow[]>([]);
+
   // 選択された所属メンバー（キャラクターID）
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
 
@@ -33,13 +39,15 @@ export default function NewOrgPage() {
 
   useEffect(() => {
     const init = async () => {
-      const [wRes, cRes] = await Promise.all([
+      const [wRes, cRes, oRes] = await Promise.all([
         supabase.from('worlds').select('id, name'),
-        supabase.from('characters').select('id, name, gender')
+        supabase.from('characters').select('id, name, gender'),
+        supabase.from('organizations').select('id, name')
       ]);
 
       setAllWorlds(wRes.data || []);
       setAllCharacters(cRes.data || []);
+      setAllOrgs(oRes.data || []);
       setLoading(false);
     };
     init();
@@ -95,6 +103,21 @@ export default function NewOrgPage() {
       await supabase.from('character_organizations').insert(
         selectedMembers.map(charId => ({ character_id: charId, org_id: newOrg.id }))
       );
+    }
+
+    if (newOrg) {
+      const relError = await saveRelationRows({
+        table: 'organization_relations',
+        ownerColumn: 'source_org_id',
+        ownerId: newOrg.id,
+        targetColumn: 'target_org_id',
+        initial: [],
+        current: orgRelations,
+      });
+      if (relError) {
+        console.error('Org relation save error:', relError);
+        alert(`他組織との関係の保存に失敗しました:\n${relError.message}\n\n組織は作成済みです。組織の編集画面から関係を設定し直してください。`);
+      }
     }
 
     router.push('/organizations');
@@ -223,6 +246,20 @@ export default function NewOrgPage() {
               )}
             </div>
           </section>
+
+          {/* 他組織との関係 */}
+          <RelationRowsEditor
+            title="他組織との関係"
+            description="この組織から見た、他の組織との関係（相関図に矢印で表示されます）"
+            theme="amber"
+            targetLabel="相手の組織"
+            targetPlaceholder="組織を選択..."
+            namePlaceholder="例: 同盟、敵対、下部組織..."
+            emptyMessage="他組織との関係はまだ設定されていません。「+ 関係を追加」ボタンから定義できます。"
+            options={allOrgs}
+            rows={orgRelations}
+            onChange={setOrgRelations}
+          />
         </div>
 
         {/* サイドバー（所属メンバー選択＆アクション） */}

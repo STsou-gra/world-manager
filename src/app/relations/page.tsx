@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useRef, MouseEvent } from 'react';
 import { supabase } from '../../lib/supabase';
-import { World, Organization, Character, CharacterRelation } from '../../types/database';
+import { World, Organization, Character, CharacterRelation, OrganizationRelation, CharacterOrgRelation, RelationLayout } from '../../types/database';
 import Link from 'next/link';
 
 type Position = { x: number; y: number };
@@ -24,6 +24,62 @@ const CHAR_CARD_HEIGHT = 112;
 const DEFAULT_ORG_BOX_WIDTH = 540;
 const DEFAULT_ORG_BOX_HEIGHT = 380;
 
+// 組織が関わる線（組織→組織、キャラ→組織）
+type BoxEdge = {
+  id: string;
+  kind: 'org' | 'char-org';
+  sourceKey: string;
+  targetKey: string;
+  label: string;
+  characterId?: string; // キャラ→組織の場合のキャラ
+  shift: number;        // 双方向の関係が重ならないよう線をずらす量
+};
+
+// 矩形の中心から (dx, dy) 方向に進んだとき、辺（+余白）とぶつかる点
+function rectBoundaryPoint(box: NodeCoordInfo, dx: number, dy: number, padding: number) {
+  const halfW = box.w / 2 + padding;
+  const halfH = box.h / 2 + padding;
+  const scale = 1 / Math.max(Math.abs(dx) / halfW, Math.abs(dy) / halfH);
+  return { x: box.x + box.w / 2 + dx * scale, y: box.y + box.h / 2 + dy * scale };
+}
+
+// 矩形同士を結ぶ直線とラベル位置。組織の枠は大きいので、枠の辺まで線を引く
+function getBoxEdgeGeometry(edge: BoxEdge, coordsMap: Record<string, NodeCoordInfo>) {
+  const source = coordsMap[edge.sourceKey];
+  const target = coordsMap[edge.targetKey];
+  if (!source || !target) return null;
+
+  const sx = source.x + source.w / 2;
+  const sy = source.y + source.h / 2;
+  // 始点が相手の枠の中にある場合は、枠の見出しに向けて線を引く
+  const inside = sx > target.x && sx < target.x + target.w && sy > target.y && sy < target.y + target.h;
+  const aimX = target.x + target.w / 2;
+  const aimY = inside ? target.y + 24 : target.y + target.h / 2;
+
+  const dx = aimX - sx;
+  const dy = aimY - sy;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) return null;
+
+  // 進行方向に垂直な向き。逆向きの関係では向きが反転するので、同じ shift でも左右に分かれる
+  const nx = -dy / len;
+  const ny = dx / len;
+
+  const start = rectBoundaryPoint(source, dx, dy, 6);
+  const end = inside ? { x: aimX, y: aimY } : rectBoundaryPoint(target, -dx, -dy, 10);
+  const x1 = start.x + nx * edge.shift;
+  const y1 = start.y + ny * edge.shift;
+  const x2 = end.x + nx * edge.shift;
+  const y2 = end.y + ny * edge.shift;
+
+  const labelOffset = edge.shift ? 16 : 0;
+  return {
+    path: `M ${x1} ${y1} L ${x2} ${y2}`,
+    labelX: (x1 + x2) / 2 + nx * labelOffset,
+    labelY: (y1 + y2) / 2 + ny * labelOffset,
+  };
+}
+
 export default function RelationsPage() {
   const [loading, setLoading] = useState(true);
   const [worlds, setWorlds] = useState<World[]>([]);
@@ -33,11 +89,14 @@ export default function RelationsPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [relations, setRelations] = useState<CharacterRelation[]>([]);
+  const [orgRelations, setOrgRelations] = useState<OrganizationRelation[]>([]);
+  const [charOrgRelations, setCharOrgRelations] = useState<CharacterOrgRelation[]>([]);
 
   // 配置およびサイズの状態管理
   const [positions, setPositions] = useState<PositionsMap>({});
   const [orgSizes, setOrgSizes] = useState<SizesMap>({});
   const [hoveredCharId, setHoveredCharId] = useState<string | null>(null);
+  const [layoutSaveError, setLayoutSaveError] = useState('');
 
   // キャンバスのパン（スクロール）用のRef
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -91,7 +150,13 @@ export default function RelationsPage() {
         `)
         .eq('character_worlds.world_id', selectedWorldId);
 
-      const [orgsRes, charsRes] = await Promise.all([orgsPromise, charsPromise]);
+      const layoutPromise = supabase
+        .from('relation_layouts')
+        .select('positions, org_sizes')
+        .eq('world_id', selectedWorldId)
+        .maybeSingle();
+
+      const [orgsRes, charsRes, layoutRes] = await Promise.all([orgsPromise, charsPromise, layoutPromise]);
 
       const loadedOrgs = orgsRes.data || [];
       const loadedChars = (charsRes.data || []).map((c: any) => ({
@@ -100,21 +165,27 @@ export default function RelationsPage() {
       }));
 
       const charIds = loadedChars.map(c => c.id);
+      const orgIds = loadedOrgs.map(o => o.id);
 
-      let loadedRels: CharacterRelation[] = [];
-      if (charIds.length > 0) {
-        const { data: relsData } = await supabase
-          .from('character_relations')
-          .select('*')
-          .in('source_character_id', charIds);
-        loadedRels = relsData || [];
-      }
+      const [relsRes, orgRelsRes, charOrgRelsRes] = await Promise.all([
+        charIds.length > 0
+          ? supabase.from('character_relations').select('*').in('source_character_id', charIds)
+          : Promise.resolve({ data: [] }),
+        orgIds.length > 0
+          ? supabase.from('organization_relations').select('id, source_org_id, target_org_id, relation_name').in('source_org_id', orgIds)
+          : Promise.resolve({ data: [] }),
+        charIds.length > 0
+          ? supabase.from('character_org_relations').select('id, character_id, org_id, relation_name').in('character_id', charIds)
+          : Promise.resolve({ data: [] }),
+      ]);
 
       setOrganizations(loadedOrgs);
       setCharacters(loadedChars);
-      setRelations(loadedRels);
+      setRelations(relsRes.data || []);
+      setOrgRelations(orgRelsRes.data || []);
+      setCharOrgRelations(charOrgRelsRes.data || []);
 
-      initializePositionsAndSizes(loadedOrgs, loadedChars);
+      initializePositionsAndSizes(loadedOrgs, loadedChars, layoutRes.data);
 
       setLoading(false);
     };
@@ -123,21 +194,32 @@ export default function RelationsPage() {
   }, [selectedWorldId]);
 
   // 3. 配置座標とサイズの初期化
-  const initializePositionsAndSizes = (orgs: Organization[], chars: Character[]) => {
-    const posKey = `world_manager_positions_${selectedWorldId}`;
-    const sizeKey = `world_manager_org_sizes_${selectedWorldId}`;
+  const initializePositionsAndSizes = (
+    orgs: Organization[],
+    chars: Character[],
+    savedLayout: Pick<RelationLayout, 'positions' | 'org_sizes'> | null
+  ) => {
+    let savedPositions: PositionsMap = savedLayout?.positions ?? {};
+    let savedSizes: SizesMap = savedLayout?.org_sizes ?? {};
 
-    let savedPositions: PositionsMap = {};
-    let savedSizes: SizesMap = {};
+    // 以前はブラウザ(localStorage)に保存していたため、DBに配置が無ければそちらを引き継ぐ
+    let migratedFromBrowser = false;
+    if (!savedLayout) {
+      try {
+        const storedPos = localStorage.getItem(`world_manager_positions_${selectedWorldId}`);
+        if (storedPos) {
+          savedPositions = JSON.parse(storedPos);
+          migratedFromBrowser = true;
+        }
 
-    try {
-      const storedPos = localStorage.getItem(posKey);
-      if (storedPos) savedPositions = JSON.parse(storedPos);
-
-      const storedSize = localStorage.getItem(sizeKey);
-      if (storedSize) savedSizes = JSON.parse(storedSize);
-    } catch (e) {
-      console.error('Failed to load storage data:', e);
+        const storedSize = localStorage.getItem(`world_manager_org_sizes_${selectedWorldId}`);
+        if (storedSize) {
+          savedSizes = JSON.parse(storedSize);
+          migratedFromBrowser = true;
+        }
+      } catch (e) {
+        console.error('Failed to load storage data:', e);
+      }
     }
 
     const newPositions: PositionsMap = { ...savedPositions };
@@ -219,13 +301,8 @@ export default function RelationsPage() {
     });
     currentCoordsRef.current = coords;
 
-    if (hasChanges) {
-      try {
-        localStorage.setItem(posKey, JSON.stringify(newPositions));
-        localStorage.setItem(sizeKey, JSON.stringify(newSizes));
-      } catch (e) {
-        console.error('Failed to save default layouts:', e);
-      }
+    if (hasChanges || migratedFromBrowser) {
+      saveLayout(newPositions, newSizes);
     }
   };
 
@@ -288,13 +365,68 @@ export default function RelationsPage() {
     return { path, labelX, labelY };
   };
 
-  const savePositions = (updatedPositions: PositionsMap) => {
-    try {
-      const storageKey = `world_manager_positions_${selectedWorldId}`;
-      localStorage.setItem(storageKey, JSON.stringify(updatedPositions));
-    } catch (e) {
-      console.error('Failed to save positions to localStorage:', e);
+  // 配置をDBに保存する（どのPC・ブラウザで開いても同じ配置になる）
+  const saveLayout = async (nextPositions: PositionsMap, nextSizes: SizesMap) => {
+    const { error } = await supabase.from('relation_layouts').upsert({
+      world_id: selectedWorldId,
+      positions: nextPositions,
+      org_sizes: nextSizes,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      console.error('Failed to save layout:', error);
+      setLayoutSaveError(error.message);
+    } else {
+      setLayoutSaveError('');
     }
+  };
+
+  // 組織が関わる線（表示中の組織・キャラの間のものだけ）
+  const isShownOrg = (orgId: string) => organizations.some(o => o.id === orgId);
+  const isShownChar = (charId: string) => characters.some(c => c.id === charId);
+  const boxEdges: BoxEdge[] = [
+    ...orgRelations
+      .filter(r => isShownOrg(r.source_org_id) && isShownOrg(r.target_org_id))
+      .map(r => ({
+        id: `orgrel-${r.id}`,
+        kind: 'org' as const,
+        sourceKey: `org-${r.source_org_id}`,
+        targetKey: `org-${r.target_org_id}`,
+        label: r.relation_name,
+        shift: orgRelations.some(o => o.source_org_id === r.target_org_id && o.target_org_id === r.source_org_id) ? 18 : 0,
+      })),
+    ...charOrgRelations
+      .filter(r => isShownChar(r.character_id) && isShownOrg(r.org_id))
+      .map(r => ({
+        id: `charorg-${r.id}`,
+        kind: 'char-org' as const,
+        sourceKey: `char-${r.character_id}`,
+        targetKey: `org-${r.org_id}`,
+        label: r.relation_name,
+        characterId: r.character_id,
+        shift: 0,
+      })),
+  ];
+
+  // ドラッグ中に線とラベルの位置を直接更新する
+  const updateBoxEdgeElements = () => {
+    boxEdges.forEach(edge => {
+      const geo = getBoxEdgeGeometry(edge, currentCoordsRef.current);
+      if (!geo) return;
+      document.getElementById(`edge-${edge.id}`)?.setAttribute('d', geo.path);
+      const labelEl = document.getElementById(`label-${edge.id}`);
+      if (labelEl) {
+        labelEl.style.left = `${geo.labelX}px`;
+        labelEl.style.top = `${geo.labelY}px`;
+      }
+    });
+  };
+
+  // キャラにカーソルを合わせたとき、そのキャラの線だけ目立たせる
+  const getBoxEdgeState = (edge: BoxEdge) => {
+    if (!hoveredCharId) return { highlighted: false, fadeOut: false };
+    const highlighted = edge.characterId === hoveredCharId;
+    return { highlighted, fadeOut: !highlighted };
   };
 
   // 5. ドラッグ＆リサイズ開始処理
@@ -397,6 +529,7 @@ export default function RelationsPage() {
             }
           }
         });
+        updateBoxEdgeElements();
 
       } else if (activeResizeId.current) {
         const resizeId = activeResizeId.current;
@@ -414,6 +547,7 @@ export default function RelationsPage() {
 
           currentCoordsRef.current[resizeId].w = newW;
           currentCoordsRef.current[resizeId].h = newH;
+          updateBoxEdgeElements();
         }
       }
     });
@@ -470,7 +604,7 @@ export default function RelationsPage() {
       }
 
       setPositions(nextPositions);
-      savePositions(nextPositions);
+      saveLayout(nextPositions, orgSizes);
 
     } else if (resizeId) {
       activeResizeId.current = null;
@@ -479,13 +613,7 @@ export default function RelationsPage() {
       nextOrgSizes[resizeId] = { width: finalCoord.w, height: finalCoord.h };
 
       setOrgSizes(nextOrgSizes);
-
-      try {
-        const sizeKey = `world_manager_org_sizes_${selectedWorldId}`;
-        localStorage.setItem(sizeKey, JSON.stringify(nextOrgSizes));
-      } catch (e) {
-        console.error('Failed to save sizes to localStorage:', e);
-      }
+      saveLayout(positions, nextOrgSizes);
     }
   };
 
@@ -549,6 +677,8 @@ export default function RelationsPage() {
 
   const canvasSize = getCanvasSize();
 
+  const boxEdgeGeometries = new Map(boxEdges.map(edge => [edge.id, getBoxEdgeGeometry(edge, currentCoordsRef.current)]));
+
   if (loading && worlds.length === 0) {
     return (
       <div className="p-20 text-center font-bold text-indigo-400 animate-pulse">
@@ -582,6 +712,12 @@ export default function RelationsPage() {
           ))}
         </div>
       </header>
+
+      {layoutSaveError && (
+        <p role="alert" className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-2xl p-3">
+          配置の保存に失敗しました: {layoutSaveError}
+        </p>
+      )}
 
       <div
         ref={viewportRef}
@@ -622,6 +758,12 @@ export default function RelationsPage() {
                 orient="auto-start-reverse"
               >
                 <path d="M 1 1 L 11 6 L 1 11 Z" fill="#a855f7" />
+              </marker>
+              <marker id="arrow-org" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+                <path d="M 1 1 L 11 6 L 1 11 Z" fill="#f59e0b" />
+              </marker>
+              <marker id="arrow-charorg" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+                <path d="M 1 1 L 11 6 L 1 11 Z" fill="#f43f5e" />
               </marker>
               <linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#818cf8" />
@@ -670,6 +812,27 @@ export default function RelationsPage() {
                 </g>
               );
             })}
+
+            {/* 組織→組織（橙）、キャラ→組織（赤の点線） */}
+            {boxEdges.map(edge => {
+              const geo = boxEdgeGeometries.get(edge.id);
+              if (!geo) return null;
+              const { highlighted, fadeOut } = getBoxEdgeState(edge);
+              const isOrgEdge = edge.kind === 'org';
+              return (
+                <path
+                  key={edge.id}
+                  id={`edge-${edge.id}`}
+                  d={geo.path}
+                  fill="none"
+                  stroke={isOrgEdge ? '#f59e0b' : '#f43f5e'}
+                  strokeWidth={highlighted ? 3 : isOrgEdge ? 2.5 : 2}
+                  strokeDasharray={isOrgEdge ? 'none' : '6, 4'}
+                  opacity={fadeOut ? 0.08 : highlighted ? 1 : 0.7}
+                  markerEnd={isOrgEdge ? 'url(#arrow-org)' : 'url(#arrow-charorg)'}
+                />
+              );
+            })}
           </svg>
 
           {/* 2. 関係性バッジの配置 */}
@@ -709,6 +872,33 @@ export default function RelationsPage() {
                 </div>
               );
             })}
+
+            {boxEdges.map(edge => {
+              const geo = boxEdgeGeometries.get(edge.id);
+              if (!geo) return null;
+              const { highlighted, fadeOut } = getBoxEdgeState(edge);
+              return (
+                <div
+                  key={`label-${edge.id}`}
+                  id={`label-${edge.id}`}
+                  className="absolute pointer-events-auto"
+                  style={{
+                    left: `${geo.labelX}px`,
+                    top: `${geo.labelY}px`,
+                    transform: 'translate(-50%, -50%)',
+                    opacity: fadeOut ? 0.08 : 1,
+                    scale: highlighted ? '1.05' : '1'
+                  }}
+                >
+                  <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md ${edge.kind === 'org'
+                    ? 'bg-amber-950/90 text-amber-200 border-amber-500/60'
+                    : 'bg-rose-950/90 text-rose-200 border-rose-500/60'
+                    }`}>
+                    {edge.label}
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
           {/* 3. 組織コンテナ（枠全域ドラッグ可能） */}
@@ -722,7 +912,9 @@ export default function RelationsPage() {
 
             const hasHoveredMember = hoveredCharId && orgMembers.some(m => m.id === hoveredCharId);
             const isOrgRelated = hoveredCharId && orgMembers.some(m => isRelated(m.id));
-            const fadeOut = hoveredCharId && !hasHoveredMember && !isOrgRelated;
+            // カーソルを合わせたキャラが、所属以外の関係を持っている組織
+            const isFeelingTarget = hoveredCharId && charOrgRelations.some(r => r.character_id === hoveredCharId && r.org_id === org.id);
+            const fadeOut = hoveredCharId && !hasHoveredMember && !isOrgRelated && !isFeelingTarget;
 
             return (
               <div
@@ -739,9 +931,11 @@ export default function RelationsPage() {
                 }}
                 className={`bg-slate-900/10 border rounded-[2.5rem] p-6 backdrop-blur-sm z-10 cursor-grab active:cursor-grabbing will-change-transform ${hasHoveredMember
                   ? 'border-emerald-500 bg-emerald-500/5 shadow-lg shadow-emerald-500/5'
-                  : isOrgRelated
-                    ? 'border-purple-500/40 bg-purple-500/5'
-                    : 'border-slate-800/80 hover:border-slate-700/50'
+                  : isFeelingTarget
+                    ? 'border-rose-500/60 bg-rose-500/5'
+                    : isOrgRelated
+                      ? 'border-purple-500/40 bg-purple-500/5'
+                      : 'border-slate-800/80 hover:border-slate-700/50'
                   }`}
               >
                 <header className="flex justify-between items-center border-b border-slate-800/60 pb-3 mb-4 select-none pointer-events-none">
@@ -841,6 +1035,8 @@ export default function RelationsPage() {
           <li><strong>📐 組織枠のリサイズ</strong>: 組織コンテナの右下隅にある三角マークをドラッグしてリサイズできます。</li>
           <li><strong>👥 組織のグループ移動</strong>: 組織枠の空きスペースを掴んで動かすと、所属メンバーごと一括移動できます。</li>
           <li><strong>🏹 直線矢印＆上下配置</strong>: 矢印がまっすぐ伸びるようになり、対向関係（A↔B）は上下平行に分離して読みやすく整理されます。</li>
+          <li><strong>🎨 矢印の色</strong>: <span className="text-indigo-400">紫</span>＝キャラ同士、<span className="text-amber-400">橙</span>＝組織同士、<span className="text-rose-400">赤の点線</span>＝キャラから組織（所属以外の感情・関わり）。</li>
+          <li><strong>💾 配置の保存</strong>: 動かした配置や組織枠の大きさはアカウントに保存され、別のPCやブラウザで開いても同じ配置になります。</li>
         </ul>
       </div>
 

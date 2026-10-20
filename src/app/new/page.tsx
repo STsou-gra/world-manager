@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase, getSupabaseConfigStatus } from '../../lib/supabase';
+import { RelationRow, saveRelationRows } from '../../lib/relationRows';
+import RelationRowsEditor from '../../components/domain/RelationRowsEditor';
 
 const DEFAULT_GENDER_TAGS = ['未設定', '女性', '男性', 'アンドロイド', 'その他'];
 const STORAGE_KEY_GENDER_TAGS = 'world_manager_custom_gender_tags';
@@ -61,6 +63,8 @@ export default function NewCharacterPage() {
   const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
   const [relations, setRelations] = useState<{ target_character_id: string; relation_name: string }[]>([]);
   const [orgRelations, setOrgRelations] = useState<Record<string, string>>({});
+  // 組織への関係（所属とは別）
+  const [charOrgRelations, setCharOrgRelations] = useState<RelationRow[]>([]);
 
   useEffect(() => {
     const status = getSupabaseConfigStatus();
@@ -296,6 +300,19 @@ export default function NewCharacterPage() {
             }))
           );
         }
+      }
+
+      const charOrgError = await saveRelationRows({
+        table: 'character_org_relations',
+        ownerColumn: 'character_id',
+        ownerId: char.id,
+        targetColumn: 'org_id',
+        initial: [],
+        current: charOrgRelations,
+      });
+      if (charOrgError) {
+        console.error('Character-organization relation save error:', charOrgError);
+        alert(`組織への関係の保存に失敗しました:\n${charOrgError.message}\n\nキャラクターは作成済みです。編集画面から関係を設定し直してください。`);
       }
     }
 
@@ -542,6 +559,20 @@ export default function NewCharacterPage() {
               </div>
             )}
           </section>
+
+          {/* 組織への関係（所属とは別） */}
+          <RelationRowsEditor
+            title="組織への関係（所属以外）"
+            description="所属していない組織への感情や関わり（相関図にキャラから組織への矢印で表示されます）"
+            theme="rose"
+            targetLabel="相手の組織"
+            targetPlaceholder="組織を選択..."
+            namePlaceholder="例: 復讐心、憧れ、潜入中..."
+            emptyMessage="組織への関係はまだ設定されていません。「+ 関係を追加」ボタンから定義できます。"
+            options={allOrgs}
+            rows={charOrgRelations}
+            onChange={setCharOrgRelations}
+          />
         </div>
 
         {/* サイドバー（所属タグ＆アクション） */}
