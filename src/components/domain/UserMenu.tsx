@@ -17,7 +17,8 @@ export default function UserMenu() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    // ページ全体を読み込み直し、前のユーザーのデータを画面から消す
+    // ログイン状態が変わったときは、意図的にページ全体を読み込み直す（理由は login/page.tsx の goTo を参照）
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign('/login');
   };
 

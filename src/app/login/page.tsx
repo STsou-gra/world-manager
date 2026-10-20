@@ -16,7 +16,9 @@ function translateAuthError(message: string) {
   return message;
 }
 
-// ログイン状態が変わったら、ページ全体を読み込み直す（前のユーザーの表示が残らないように）
+// ログイン状態が変わったときは、意図的にページ全体を読み込み直す。
+// それまでの先読み（未ログイン時は「ログイン画面への転送」）が使えなくなるが、
+// router.refresh() では今のページのキャッシュしか消えず、先読みの通信が 404 エラーになるため
 function goTo(path: string) {
   window.location.assign(path);
 }
