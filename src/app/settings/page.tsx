@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useRouter } from 'next/navigation';
+import ApiTokensSection from '../../components/domain/ApiTokensSection';
 
 export default function SettingsPage() {
   const [worlds, setWorlds] = useState<{id:string, name:string}[]>([]);
@@ -64,6 +65,9 @@ export default function SettingsPage() {
           {orgs.map(o => <span key={o.id} className="bg-slate-700 px-3 py-1 rounded-full text-xs text-slate-300">{o.name}</span>)}
         </div>
       </section>
+
+      {/* 外部連携（API トークン） */}
+      <ApiTokensSection />
     </div>
   );
 }
