@@ -4,11 +4,20 @@ import { targetUrl, targetKey } from './lib/supabase-config';
 import { safeNextPath } from './lib/safeNextPath';
 
 // ログインしなくても開けるページ
-const PUBLIC_PATHS = ['/login', '/auth'];
+// /api/ext は外部連携 API。Cookie のログインではなく API トークンで認証する（src/lib/ext-api/with-api-user.ts）
+const PUBLIC_PATHS = ['/login', '/auth', '/api/ext'];
+
+// Cookie のセッションを使わないパス（ログイン状態の確認・更新の問い合わせも省く）
+const TOKEN_AUTH_PATHS = ['/api/ext'];
+
+const matchesPath = (pathname: string, paths: readonly string[]) =>
+  paths.some(p => pathname === p || pathname.startsWith(`${p}/`));
 
 // すべてのページの前に実行され、未ログインならログイン画面へ移動させる。
 // ログインの有効期限が近い場合は、ここで自動更新される
 export async function proxy(request: NextRequest) {
+  if (matchesPath(request.nextUrl.pathname, TOKEN_AUTH_PATHS)) return NextResponse.next();
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(targetUrl, targetKey, {
@@ -28,7 +37,7 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   const { pathname, search } = request.nextUrl;
-  const isPublic = PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(`${p}/`));
+  const isPublic = matchesPath(pathname, PUBLIC_PATHS);
 
   const redirectTo = (url: URL) => {
     const redirect = NextResponse.redirect(url);
