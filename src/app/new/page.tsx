@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { supabase, getSupabaseConfigStatus } from '../../lib/supabase';
 import { RelationRow, saveRelationRows } from '../../lib/relationRows';
 import RelationRowsEditor from '../../components/domain/RelationRowsEditor';
+import NameReadingFields from '../../components/domain/NameReadingFields';
+import { normalizeAliases, validateNameReadings } from '../../lib/characterNames';
 
 const DEFAULT_GENDER_TAGS = ['未設定', '女性', '男性', 'アンドロイド', 'その他'];
 const STORAGE_KEY_GENDER_TAGS = 'world_manager_custom_gender_tags';
@@ -37,6 +39,8 @@ export default function NewCharacterPage() {
 
   // フォームステート
   const [name, setName] = useState('');
+  const [kana, setKana] = useState('');
+  const [aliases, setAliases] = useState<string[]>([]);
   const [gender, setGender] = useState('未設定');
   const [genderTags, setGenderTags] = useState<string[]>(DEFAULT_GENDER_TAGS);
   
@@ -229,6 +233,12 @@ export default function NewCharacterPage() {
       alert('キャラクター名を入力してください');
       return;
     }
+    const cleanAliases = normalizeAliases(aliases, name);
+    const nameReadingError = validateNameReadings(kana, cleanAliases);
+    if (nameReadingError) {
+      alert(nameReadingError);
+      return;
+    }
 
     const currentStatus = getSupabaseConfigStatus();
     if (!currentStatus.isConfigured) {
@@ -254,6 +264,8 @@ export default function NewCharacterPage() {
       .from('characters')
       .insert([{
         name: name.trim(),
+        kana: kana.trim(),
+        aliases: cleanAliases,
         gender,
         description: descJson,
         stats,
@@ -361,6 +373,9 @@ export default function NewCharacterPage() {
                 value={name} onChange={e => setName(e.target.value)} 
               />
             </div>
+
+            {/* 読み・別名（Story-Manager の設定語ハイライト・サジェストにも使われる） */}
+            <NameReadingFields kana={kana} onKanaChange={setKana} aliases={aliases} onAliasesChange={setAliases} />
 
             {/* 性別 / 属性 タグ選択 */}
             <div>
