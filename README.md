@@ -28,6 +28,8 @@ Supabase 管理画面の SQL Editor で、`supabase/migrations/` のファイル
 | `20261019000000_base_schema.sql` | 基本テーブル（世界観・組織・キャラ・各紐付け） |
 | `20261019000100_auth_rls.sql` | ログインユーザーごとにデータを分ける設定（RLS） |
 | `20261019000200_relations_and_layouts.sql` | 組織同士の関係、キャラ→組織の関係、相関図の配置 |
+| `20261118000000_api_tokens.sql` | 外部連携用の API トークン（下の「外部連携」） |
+| `20261118000100_character_kana_aliases.sql` | キャラの「読み（ふりがな）」と「別名・愛称」 |
 
 Supabase CLI を使う場合は `supabase db push` でも適用できます。
 
@@ -70,6 +72,7 @@ http://localhost:3000 を開くとログイン画面が表示されます。
 3. Framework Preset が Next.js になっていることを確認し、「Environment Variables」に `.env.local` と同じ値を入れる
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - 外部連携（下の「外部連携」）を使う場合は `SUPABASE_SERVICE_ROLE_KEY` も入れる（`NEXT_PUBLIC_` を付けない）
 4. 「Deploy」を押す。数分で `https://〇〇.vercel.app` の公開URLができる
 5. Supabase 管理画面の「Authentication → URL Configuration」で、Site URL を公開URLにし、Redirect URLs に `https://公開URL/auth/callback` を追加する
 6. 公開URLを開き、ログインしてデータが表示されることを確認する
@@ -79,6 +82,42 @@ http://localhost:3000 を開くとログイン画面が表示されます。
 - `main` に取り込むたびに、本番が自動で更新されます。PR ごとにプレビュー用のURLも作られますが、本番と同じデータベースを使います。プレビューでもログインしたい場合は、Redirect URLs に `https://*-<Vercelのアカウント名またはチーム名>.vercel.app/**` を追加します
 - `NEXT_PUBLIC_` で始まる環境変数はビルド時に埋め込まれます。Vercel で値を変えたら、「Deployments」の「…」→「Redeploy」で再デプロイしてください
 
+## 外部連携（Story-Manager から読み取る）
+
+Story-Manager（物語執筆アプリ）から、このアプリのキャラクター・世界観・組織を**読み取り専用**で参照できます。
+書き込みはこのアプリの画面で行います（Story-Manager の「外部アプリで編集」から、このアプリの編集画面が開きます）。
+
+### 設定
+
+1. SQL Editor で `20261118000000_api_tokens.sql` と `20261118000100_character_kana_aliases.sql` を実行する（上の「2. データベース」）
+2. サーバー専用の環境変数 `SUPABASE_SERVICE_ROLE_KEY` を設定する（ローカルは `.env.local`、Vercel は Environment Variables）
+   - 値は Supabase 管理画面の「Project Settings → API Keys」の **service_role**（secret）キー
+   - ⚠ RLS を無視して全データを読めるキーです。**`NEXT_PUBLIC_` を付けない・ブラウザのコードで使わない・公開しない**こと
+3. アプリを再起動（Vercel は Redeploy）し、ログインして「設定」画面の「外部連携（API トークン）」でトークンを発行する
+   - トークン（`wmpat_...`）は発行時に 1 回だけ表示されます。コピーして、Story-Manager の `EXT_WORLDMANAGER_API_TOKEN` に設定します
+   - 不要になったら「失効」を押します（失効したトークンでは読めなくなります）
+4. Story-Manager 側の設定は Story-Manager の `docs/deploy.md`（world-manager 連携）を参照
+
+### API（`/api/ext/v1/*`）
+
+- 認証: `Authorization: Bearer <トークン>`。トークンの持ち主のデータだけを返します（サーバーで SHA-256 を照合し、すべての読み取りを持ち主で絞り込む）
+- 読み取り専用・サーバー間通信のみ（CORS なし）。応答は `Cache-Control: no-store`
+- エラー: `{ "error": { "code": "UNAUTHORIZED" | "NOT_FOUND" | "BAD_REQUEST" | "INTERNAL_ERROR", "message": "..." } }`
+
+| パス | 内容 |
+|---|---|
+| `GET /api/ext/v1/health` | 疎通確認（`{ "ok": true }`） |
+| `GET /api/ext/v1/characters` | 一覧（`?limit=1〜200`（既定 100）`&cursor=<数字>`）または一括取得（`?ids=<id>&ids=...`、100 件まで） → `{ data, next_cursor }` |
+| `GET /api/ext/v1/characters/:id` | 詳細（無ければ 404） |
+| `GET /api/ext/v1/worlds`、`/worlds/:id` | 世界観（同上） |
+| `GET /api/ext/v1/organizations`、`/organizations/:id` | 組織（同上） |
+
+確認例:
+
+```bash
+curl -H "Authorization: Bearer wmpat_..." http://localhost:3000/api/ext/v1/health
+curl -H "Authorization: Bearer wmpat_..." "http://localhost:3000/api/ext/v1/characters?limit=2"
+```
 
 ## Next.jsの開始手順
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).

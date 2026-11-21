@@ -58,6 +58,8 @@ export type CharacterOrganization = {
 export type Character = {
   id: string;
   name: string;
+  kana: string;      // 読み（ふりがな）。未入力は ''
+  aliases: string[]; // 別名・愛称。未入力は []
   gender: string;
   description: string;
   stats?: Record<string, number>;

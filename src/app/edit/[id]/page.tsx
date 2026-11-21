@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 import { RelationRow as TargetRelationRow, saveRelationRows } from '../../../lib/relationRows';
 import RelationRowsEditor from '../../../components/domain/RelationRowsEditor';
+import NameReadingFields from '../../../components/domain/NameReadingFields';
+import { normalizeAliases, readAliases, validateNameReadings } from '../../../lib/characterNames';
 
 const DEFAULT_GENDER_TAGS = ['未設定', '女性', '男性', 'アンドロイド', 'その他'];
 const STORAGE_KEY_GENDER_TAGS = 'world_manager_custom_gender_tags';
@@ -43,6 +45,8 @@ export default function EditCharacterPage() {
 
   // フォームステート
   const [name, setName] = useState('');
+  const [kana, setKana] = useState('');
+  const [aliases, setAliases] = useState<string[]>([]);
   const [gender, setGender] = useState('未設定');
   const [genderTags, setGenderTags] = useState<string[]>(DEFAULT_GENDER_TAGS);
   const [personality, setPersonality] = useState('');
@@ -97,6 +101,8 @@ export default function EditCharacterPage() {
 
         if (cRes.data) {
           setName(cRes.data.name);
+          setKana(cRes.data.kana || '');
+          setAliases(readAliases(cRes.data.aliases));
           setGender(cRes.data.gender || '未設定');
 
           const desc = cRes.data.description ? JSON.parse(cRes.data.description) : {};
@@ -270,6 +276,17 @@ export default function EditCharacterPage() {
       return false;
     };
 
+    if (!name.trim()) {
+      alert('キャラクター名を入力してください');
+      return;
+    }
+    const cleanAliases = normalizeAliases(aliases, name);
+    const nameReadingError = validateNameReadings(kana, cleanAliases);
+    if (nameReadingError) {
+      alert(nameReadingError);
+      return;
+    }
+
     const descJson = JSON.stringify({
       personality,
       background,
@@ -280,6 +297,8 @@ export default function EditCharacterPage() {
     // 基本情報の更新
     const { error: charError } = await supabase.from('characters').update({
       name,
+      kana: kana.trim(),
+      aliases: cleanAliases,
       gender,
       description: descJson,
       stats,
@@ -408,6 +427,9 @@ export default function EditCharacterPage() {
                 value={name} onChange={e => setName(e.target.value)}
               />
             </div>
+
+            {/* 読み・別名（Story-Manager の設定語ハイライト・サジェストにも使われる） */}
+            <NameReadingFields kana={kana} onKanaChange={setKana} aliases={aliases} onAliasesChange={setAliases} />
 
             {/* 性別 / 属性 タグ選択 */}
             <div>

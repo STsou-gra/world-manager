@@ -14,6 +14,7 @@ export default function CharacterCard({ character }: { character: Character }) {
     <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 backdrop-blur-sm hover:border-blue-500/50 transition-all group">
       <div className="flex justify-between items-start mb-6">
         <div>
+          {character.kana && <p className="text-[10px] text-slate-500 tracking-widest">{character.kana}</p>}
           <h3 className="text-2xl font-bold text-white mb-1">{character.name}</h3>
           <p className="text-slate-500 text-xs font-mono uppercase">{character.gender}</p>
         </div>
